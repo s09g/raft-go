@@ -17,7 +17,9 @@ package raft
 //   in the same server.
 //
 
-import "sync"
+import (
+	"sync"
+)
 import "sync/atomic"
 import "../labrpc"
 
@@ -42,6 +44,17 @@ type ApplyMsg struct {
 	Command      interface{}
 	CommandIndex int
 }
+type ServerState int
+
+const (
+	Follower ServerState = iota
+	Candidate
+	Leader
+)
+
+type Log struct {
+
+}
 
 //
 // A Go object implementing a single Raft peer.
@@ -56,7 +69,17 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+	state	ServerState
 
+	currentTerm int
+	votedFor int
+	log []*Log
+
+	commitIndex int
+	lastApplied int
+
+	nextIndex []int
+	matchIndex []int
 }
 
 // return currentTerm and whether this server

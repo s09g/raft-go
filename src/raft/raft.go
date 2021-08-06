@@ -44,12 +44,13 @@ type ApplyMsg struct {
 	Command      interface{}
 	CommandIndex int
 }
-type ServerState int
+type RaftState int
 
 const (
-	Follower ServerState = iota
+	Follower RaftState = iota
 	Candidate
 	Leader
+	Shutdown
 )
 
 type Log struct {
@@ -69,8 +70,13 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	state	ServerState
+	state RaftState
+	appendEntryCh chan *Log
+	raftServerState
+	raftConfig
+}
 
+type raftServerState struct {
 	currentTerm int
 	votedFor int
 	log []*Log
@@ -80,6 +86,11 @@ type Raft struct {
 
 	nextIndex []int
 	matchIndex []int
+}
+
+type raftConfig struct {
+	electionTimeoutMs int
+	heartbeatTimeoutMs int
 }
 
 // return currentTerm and whether this server
@@ -257,6 +268,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+	DPrintf("me : %d: initialization\n", me)
+
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

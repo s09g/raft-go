@@ -284,3 +284,44 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	return rf
 }
+
+func (rf *Raft) run() {
+	for {
+		switch rf.state {
+		case Follower:
+			rf.runFollower()
+		case Candidate:
+			rf.runCandidate()
+		case Leader:
+			rf.runLeader()
+		}
+	}
+}
+
+func (rf *Raft) runFollower() {
+	DPrintf("me : %d: enter follower state \n", rf.me)
+	heartbeatTimer := randTimeOutMs(rf.heartbeatTimeoutMs)
+	select {
+	case <- rf.appendEntryCh:
+		// 收到心跳
+	case <- heartbeatTimer:
+		// 等待心跳超时
+	}
+}
+
+func randTimeOutMs(ms int) <- chan time.Time {
+	return time.After(time.Duration(ms + rand.Intn(ms)) * time.Millisecond)
+}
+
+func (rf *Raft) LeaderElection() {
+	DPrintf("me : %d: leader election\n", rf.me)
+	rf.state = Follower
+	rf.currentTerm += 1
+
+	DPrintf("me : %d: request vote\n", rf.me)
+
+}
+
+func (rf *Raft) runLeader() {
+
+}

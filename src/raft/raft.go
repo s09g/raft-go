@@ -18,7 +18,9 @@ package raft
 //
 
 import (
+	"math/rand"
 	"sync"
+	"time"
 )
 import "sync/atomic"
 import "../labrpc"
@@ -269,7 +271,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("me : %d: initialization\n", me)
-
+	rf.state = Follower
+	rf.currentTerm = 0
+	rf.electionTimeoutMs = 150
+	rf.heartbeatTimeoutMs = 150
+	DPrintf("raft : %#v\n", rf)
+	rf.run()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

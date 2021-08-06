@@ -305,7 +305,7 @@ func (rf *Raft) runFollower() {
 	case <- rf.appendEntryCh:
 		// 收到心跳
 	case <- heartbeatTimer:
-		// 等待心跳超时
+		rf.LeaderElection()
 	}
 }
 
@@ -315,8 +315,13 @@ func randTimeOutMs(ms int) <- chan time.Time {
 
 func (rf *Raft) LeaderElection() {
 	DPrintf("me : %d: leader election\n", rf.me)
-	rf.state = Follower
+	// 1. 增加任期编号
+	// 2.成为候选人
 	rf.currentTerm += 1
+	rf.state = Candidate
+	// 3. 请求vote
+	
+
 
 	DPrintf("me : %d: request vote\n", rf.me)
 

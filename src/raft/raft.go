@@ -18,9 +18,11 @@ package raft
 //
 
 import (
+	"math/rand"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	//	"../labgob"
 	"../labrpc"
@@ -50,6 +52,16 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+type RaftState string
+
+const (
+	Follower RaftState = "Follower"
+	Candidate = "Candidate"
+	Leader = "Leader"
+)
+
+type Log string
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -63,9 +75,29 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-
+	state RaftState
+	appendEntryCh chan *Log
+	raftServerState
+	raftConfig
 }
 
+type raftServerState struct {
+	currentTerm int
+	currentLeader int
+	votedFor int
+	log []*Log
+
+	commitIndex int
+	lastApplied int
+
+	nextIndex []int
+	matchIndex []int
+}
+
+type raftConfig struct {
+	electionTimeoutMs int
+	heartbeatTimeoutMs int
+}
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
@@ -143,6 +175,8 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	Term int
+	CandidateID int
 }
 
 //
@@ -151,6 +185,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+	Term     int
+	VotedFor int
 }
 
 //
@@ -158,6 +194,27 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	if args.Term < rf.currentTerm {
+		DPrintf("[%d]: received an old term %d, drop it\n", rf.me, args.Term)
+	}
+	if args.Term == rf.currentTerm {
+		DPrintf("[%d]: 选票瓜分，投票遵循先来后到\n", rf.me)
+		if rf.votedFor == -1 {
+			DPrintf("[%d]: 之前没有投过票\n", rf.me)
+			rf.votedFor = args.CandidateID
+		}
+		DPrintf("[%d]: 当前term： %d，投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
+	}
+	if args.Term > rf.currentTerm {
+		rf.currentTerm = args.Term
+		rf.votedFor = args.CandidateID
+		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
+	}
+	reply.Term = rf.currentTerm
+	reply.VotedFor = rf.votedFor
 }
 
 //
@@ -270,9 +327,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.votedFor = -1
 
 	// Your initialization code here (2A, 2B, 2C).
-
+	DPrintf("[%d]: initialization\n", me)
+	rf.state = Follower
+	rf.currentTerm = 0
+	rf.electionTimeoutMs = 1500
+	rf.heartbeatTimeoutMs = 1500
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
@@ -281,4 +343,158 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 	return rf
+}
+
+func (rf *Raft) run() {
+	for {
+		switch rf.state {
+		case Follower:
+			rf.runFollower()
+		case Candidate:
+			rf.runCandidate()
+		case Leader:
+			rf.runLeader()
+		}
+	}
+}
+
+func (rf *Raft) runFollower() {
+	DPrintf("[%d]: enter follower state \n", rf.me)
+	heartbeatTimer := randTimeOutMs(rf.heartbeatTimeoutMs)
+	DPrintf("[%d]: heartbeatTimeOut \n", rf.me)
+	select {
+	case <- rf.appendEntryCh:
+		<-heartbeatTimer
+		heartbeatTimer = randTimeOutMs(rf.heartbeatTimeoutMs)
+		// 收到心跳
+	case <- heartbeatTimer:
+		rf.state = Candidate
+		return
+	}
+}
+
+func randTimeOutMs(ms int) <- chan time.Time {
+	return time.After(time.Duration(ms + rand.Intn(ms)) * time.Millisecond)
+}
+
+func (rf *Raft) LeaderElection()  {
+	rf.mu.Lock()
+	DPrintf("[%d]: leader election\n", rf.me)
+	// 1. 增加任期编号
+	// 2.成为候选人
+	rf.currentTerm += 1
+	rf.currentLeader = -1
+	rf.state = Candidate
+	rf.votedFor = rf.me
+	term := rf.currentTerm
+	completed := false
+	rf.mu.Unlock()
+	// 3. 请求vote
+
+	DPrintf("[%d]: request vote\n", rf.me)
+	var voteCounter int
+	electionTimer := randTimeOutMs(rf.electionTimeoutMs)
+	select {
+	case <-electionTimer:
+		DPrintf("[%d]: election failed\n", rf.me)
+	default:
+		for serverId, _ := range rf.peers {
+			if serverId == rf.me {
+				rf.mu.Lock()
+				voteCounter++
+				rf.mu.Unlock()
+				continue
+			}
+			go func(serverId int) {
+				DPrintf("[%d]: send vote request to %d\n", rf.me, serverId)
+
+				args := RequestVoteArgs{
+					Term:        term,
+					CandidateID: rf.me,
+				}
+				reply := RequestVoteReply{}
+				ok := rf.sendRequestVote(serverId, &args, &reply)
+				if  !ok{
+					return
+				}
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+				DPrintf("[%d]: receive vote from %d\n", rf.me, serverId)
+				if reply.Term > term {
+					DPrintf("[%d]: %d 在新的term，更新term，结束\n", rf.me, serverId)
+					rf.currentTerm = reply.Term
+					return
+				}
+				if reply.Term < term {
+					DPrintf("[%d]: %d 的term已经失效，结束\n", rf.me, serverId)
+					return
+				}
+
+				if reply.VotedFor != rf.me {
+					DPrintf("[%d]: %d 没有投给me，结束\n", rf.me, serverId)
+					return
+				}
+				DPrintf("[%d]: %d term一致，且投给me\n", rf.me, serverId)
+
+				voteCounter++
+				if completed || voteCounter <= len(rf.peers) / 2 || rf.currentLeader != -1 {
+					return
+				}
+				DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
+
+				completed = true
+				if term != rf.currentTerm || rf.state != Candidate {
+					DPrintf("[%d]: term 过期，或者已经不是candidate，结束\n", rf.me)
+					return
+				}
+				DPrintf("[%d]: 成为leader\n", rf.me)
+				rf.state = Leader
+				rf.currentLeader = rf.me
+			}(serverId)
+		}
+	}
+
+}
+
+func (rf *Raft) runLeader() {
+	DPrintf("[%d]: enter leader state \n", rf.me)
+	// send heartbeat
+	rf.SendEntry()
+}
+
+func (rf *Raft) runCandidate() {
+	DPrintf("[%d]: enter candidate state \n", rf.me)
+
+	rf.LeaderElection()
+}
+
+func (rf *Raft) SendEntry() {
+	for serverId, _ := range rf.peers{
+		go func(serverId int) {
+			DPrintf("[%d]: send entry to %d\n", rf.me, serverId)
+
+			args := RequestVoteArgs{
+				Term:        rf.currentTerm,
+				CandidateID: rf.me,
+			}
+			reply := RequestVoteReply{}
+			rf.sendEntry(serverId, &args, &reply)
+		}(serverId)
+	}
+}
+
+func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
+	if args.Term < rf.currentTerm {
+		return
+	}
+	rf.state = Follower
+	rf.currentLeader = args.CandidateID
+	rf.currentTerm = args.Term
+	log := Log("")
+	rf.appendEntryCh <- &log
+}
+
+func (rf *Raft) sendEntry(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
+	return ok
 }

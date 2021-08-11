@@ -95,8 +95,8 @@ type raftServerState struct {
 }
 
 type raftConfig struct {
-	electionTimeoutMs int
-	heartbeatTimeoutMs int
+	electionTimeoutMs time.Duration
+	lastHeatBeat time.Time
 }
 // return currentTerm and whether this server
 // believes it is the leader.
@@ -302,11 +302,14 @@ func (rf *Raft) killed() bool {
 // heartsbeats recently.
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
 
+		time.Sleep(rf.electionTimeoutMs)
+		if time.Since(rf.lastHeatBeat) > rf.electionTimeoutMs {
+			rf.runFollower()
+		}
 	}
 }
 
@@ -333,8 +336,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	DPrintf("[%d]: initialization\n", me)
 	rf.state = Follower
 	rf.currentTerm = 0
-	rf.electionTimeoutMs = 1500
-	rf.heartbeatTimeoutMs = 1500
+	rf.electionTimeoutMs = 1500 * time.Millisecond
+	rf.lastHeatBeat = time.Now()
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
@@ -343,19 +346,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 	return rf
-}
-
-func (rf *Raft) run() {
-	for {
-		switch rf.state {
-		case Follower:
-			rf.runFollower()
-		case Candidate:
-			rf.runCandidate()
-		case Leader:
-			rf.runLeader()
-		}
-	}
 }
 
 func (rf *Raft) runFollower() {

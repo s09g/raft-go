@@ -95,6 +95,7 @@ type raftServerState struct {
 }
 
 type raftConfig struct {
+	heartBeat time.Duration
 	electionTimeoutMs time.Duration
 	lastHeatBeat time.Time
 }
@@ -308,7 +309,7 @@ func (rf *Raft) ticker() {
 
 		time.Sleep(rf.electionTimeoutMs)
 		if time.Since(rf.lastHeatBeat) > rf.electionTimeoutMs {
-			rf.runFollower()
+			rf.LeaderElection()
 		}
 	}
 }
@@ -336,7 +337,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	DPrintf("[%d]: initialization\n", me)
 	rf.state = Follower
 	rf.currentTerm = 0
-	rf.electionTimeoutMs = 1500 * time.Millisecond
+
+	rf.heartBeat = time.Second
+	rf.electionTimeoutMs = 2 * time.Second
 	rf.lastHeatBeat = time.Now()
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -363,9 +366,6 @@ func (rf *Raft) runFollower() {
 	}
 }
 
-func randTimeOutMs(ms int) <- chan time.Time {
-	return time.After(time.Duration(ms + rand.Intn(ms)) * time.Millisecond)
-}
 
 func (rf *Raft) LeaderElection()  {
 	rf.mu.Lock()

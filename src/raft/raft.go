@@ -101,8 +101,10 @@ type raftTimeConfig struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
+	rf.mu.Lock()
 	term := rf.currentTerm
 	isleader := rf.state == Leader
+	rf.mu.Unlock()
 	// Your code here (2A).
 	return term, isleader
 }
@@ -191,28 +193,37 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	myTerm := rf.currentTerm
+	peerTerm := args.Term
+	rf.mu.Unlock()
 
-	if args.Term < rf.currentTerm {
-		DPrintf("[%d]: received an old term %d, drop it\n", rf.me, args.Term)
+	if peerTerm < myTerm {
+		DPrintf("[%d]: received an old term %d, drop it\n", rf.me, peerTerm)
 		return
 	}
-	if args.Term == rf.currentTerm {
+	if peerTerm == myTerm {
 		DPrintf("[%d]: 选票瓜分，投票遵循先来后到\n", rf.me)
+		rf.mu.Lock()
 		if rf.votedFor == -1 {
 			DPrintf("[%d]: 之前没有投过票\n", rf.me)
 			rf.votedFor = args.CandidateID
 		}
-		DPrintf("[%d]: 当前term %d，投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
+		rf.mu.Unlock()
+		DPrintf("[%d]: 当前term %d，投给 %d\n", rf.me, myTerm, rf.votedFor)
 	}
-	if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
+	if peerTerm > myTerm {
+		rf.mu.Lock()
+		rf.currentTerm = peerTerm
 		rf.votedFor = args.CandidateID
-		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
+		rf.mu.Unlock()
+		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, myTerm, rf.votedFor)
 	}
+	rf.mu.Lock()
 	rf.lastHeatBeat = time.Now()
 	reply.Term = rf.currentTerm
 	reply.VotedFor = rf.votedFor
+	DPrintf("[%d]: send %#v\n", rf.me, reply)
+	rf.mu.Unlock()
 }
 
 //
@@ -352,7 +363,6 @@ func (rf *Raft) leaderElection() {
 	DPrintf("[%d]: leader election\n", rf.me)
 
 	rf.mu.Lock()
-
 	rf.currentTerm += 1
 	rf.state = Candidate
 	rf.votedFor = rf.me
@@ -380,39 +390,47 @@ func (rf *Raft) leaderElection() {
 				return
 			}
 			rf.mu.Lock()
-			defer rf.mu.Unlock()
-			DPrintf("[%d]: receive vote from %d\n", rf.me, serverId)
-			if reply.Term > term {
+			peerTerm := reply.Term
+			DPrintf("[%d]: receive vote from %#v\n", rf.me, reply)
+			rf.mu.Unlock()
+			DPrintf("[%d]: receive vote from %d, 当前term %d 对方term %d\n", rf.me, serverId, term, peerTerm)
+			if peerTerm > term {
 				DPrintf("[%d]: %d 在新的term，更新term，结束\n", rf.me, serverId)
-				rf.currentTerm = reply.Term
+				rf.mu.Lock()
+				rf.currentTerm = peerTerm
+				rf.mu.Unlock()
 				return
 			}
-			if reply.Term < term {
-				DPrintf("[%d]: %d 的term已经失效，结束\n", rf.me, serverId)
+			if peerTerm < term {
+				DPrintf("[%d]: %d 的term %d 已经失效，结束\n", rf.me, serverId, peerTerm)
 				return
 			}
-
+			rf.mu.Lock()
 			if reply.VotedFor != rf.me {
 				DPrintf("[%d]: %d 没有投给me，结束\n", rf.me, serverId)
+				rf.mu.Unlock()
 				return
 			}
 			DPrintf("[%d]: %d term一致，且投给me\n", rf.me, serverId)
 
 			voteCounter++
+
 			if completed || voteCounter <= len(rf.peers)/2 {
-				DPrintf("[%d] 结束\n", rf.me)
+				DPrintf("[%d] 当前票数 %d 结束\n", rf.me, voteCounter)
+				rf.mu.Unlock()
 				return
 			}
 			DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 			completed = true
 			if term != rf.currentTerm || rf.state != Candidate {
 				DPrintf("[%d]: term 过期，或者已经不是candidate，结束\n", rf.me)
+				rf.mu.Unlock()
 				return
 			}
 			DPrintf("[%d]: 成为leader\n", rf.me)
 			rf.state = Leader
 			DPrintf("[%d]: state %v\n", rf.me, rf.state)
-
+			rf.mu.Unlock()
 			rf.runLeader()
 		}(serverId)
 	}
@@ -434,8 +452,10 @@ func (rf *Raft) runCandidate() {
 }
 
 func (rf *Raft) SendEntry() {
+	rf.mu.Lock()
 	term := rf.currentTerm
 	me := rf.me
+	rf.mu.Unlock()
 	args := RequestVoteArgs{
 		Term:        term,
 		CandidateID: me,
@@ -443,7 +463,9 @@ func (rf *Raft) SendEntry() {
 	reply := RequestVoteReply{}
 	for serverId, _ := range rf.peers {
 		if serverId == me {
-			continue
+			rf.mu.Lock()
+			rf.lastHeatBeat = time.Now()
+			rf.mu.Unlock()
 		}
 		go func(serverId int) {
 			rf.sendEntry(serverId, &args, &reply)
@@ -460,7 +482,7 @@ func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.state = Follower
 	rf.currentTerm = args.Term
 	rf.lastHeatBeat = time.Now()
-	DPrintf("[%d]: 收到 %d 心跳 state %v\n", rf.me, args.CandidateID, rf.state)
+	// DPrintf("[%d]: 收到 %d 心跳 state %v\n", rf.me, args.CandidateID, rf.state)
 }
 
 func (rf *Raft) sendEntry(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {

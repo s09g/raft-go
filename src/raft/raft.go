@@ -304,10 +304,14 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
+		time.Sleep(rf.heartBeat)
 
-		time.Sleep(rf.electionTimeoutMs)
+		state := rf.getRaftState()
+		if state == Leader {
+			rf.SendEntry()
+		}
 		if rf.timeSinceLastHeartBeat() > rf.electionTimeoutMs {
-			rf.runCandidate()
+			rf.leaderElection()
 		}
 	}
 }
@@ -409,26 +413,10 @@ func (rf *Raft) leaderElection() {
 			}
 			DPrintf("[%d]: 成为leader\n", rf.me)
 			rf.setRaftState(Leader)
-			DPrintf("[%d]: state %v\n", rf.me, rf.state)
+			DPrintf("[%d]: state %v\n", rf.me, rf.getRaftState())
 
-			rf.runLeader()
 		}(serverId)
 	}
-}
-
-func (rf *Raft) runLeader() {
-	// send heartbeat
-	for  {
-		rf.SendEntry()
-		time.Sleep(rf.heartBeat)
-	}
-
-}
-
-func (rf *Raft) runCandidate() {
-	DPrintf("[%d]: enter candidate state \n", rf.me)
-
-	rf.leaderElection()
 }
 
 func (rf *Raft) SendEntry() {
@@ -440,28 +428,45 @@ func (rf *Raft) SendEntry() {
 	}
 	reply := RequestVoteReply{}
 	DPrintf("[%d] leader state %#v", rf.me, rf.getRaftState())
+	ackCounter := 1
+	var wg sync.WaitGroup
+
 	for serverId, _ := range rf.peers {
 		if serverId == me {
 			rf.updateLastHeartBeat()
 			continue
 		}
+		wg.Add(1)
 		go func(serverId int) {
-			rf.sendEntry(serverId, &args, &reply)
+			ack := rf.sendEntry(serverId, &args, &reply)
+			if ack {
+				rf.mu.Lock()
+				ackCounter++
+				rf.mu.Unlock()
+			}
+			wg.Done()
 		}(serverId)
+	}
+	wg.Wait()
+	if ackCounter <= len(rf.peers)/2 {
+		 rf.setRaftState(Follower)
 	}
 }
 
 func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
+	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.CandidateID, args.Term)
+
 	currentTerm := rf.getCurrentTerm()
 	if args.Term < currentTerm {
 		return
 	}
-	if args.Term > currentTerm{
-		rf.setRaftState(Follower)
-		rf.setCurrentTerm(args.Term)
-	}
+	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.CandidateID, currentTerm, rf.getRaftState())
+
+	rf.setRaftState(Follower)
+	rf.setCurrentTerm(args.Term)
+
 	rf.updateLastHeartBeat()
-	DPrintf("[%d]: 收到 %d 心跳 state %v\n", rf.me, args.CandidateID, rf.getRaftState())
+	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.CandidateID, rf.getCurrentTerm(), rf.getRaftState())
 }
 
 func (rf *Raft) sendEntry(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {

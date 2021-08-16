@@ -6,7 +6,7 @@ import (
 )
 
 // Debugging
-const Debug = true
+const Debug = false
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
@@ -27,4 +27,10 @@ func (rf *Raft) getRaftState() RaftState {
 	state := rf.state
 	rf.mu.Unlock()
 	return state
+}
+
+func (rf *Raft) setNewTerm(term int) {
+	rf.currentTerm = term
+	rf.state = Follower
+	rf.votedFor = -1
 }

@@ -196,6 +196,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if args.Term < rf.currentTerm {
+		reply.VoteGranted = false
 		DPrintf("[%d]: received an old term %d, drop it\n", rf.me, args.Term)
 		return
 	}
@@ -208,7 +209,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		DPrintf("[%d]: 当前term %d，投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
 	}
 	if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
+		rf.setNewTerm(args.Term)
 		rf.votedFor = args.CandidateID
 		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
 	}
@@ -333,13 +334,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-	rf.votedFor = -1
 
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
-	rf.state = Follower
-	rf.currentTerm = 0
-
+	rf.setNewTerm(0)
 	rf.heartBeat = 20 * time.Millisecond
 	rf.lastHeatBeat = time.Now()
 	rf.electionTimeoutMs = time.Duration(150 + rand.Intn(150)) * time.Millisecond
@@ -386,7 +384,7 @@ func (rf *Raft) leaderElection() {
 			DPrintf("[%d]: receive vote from %d, 当前term %d 对方term %d\n", rf.me, serverId, term, reply.Term)
 			if reply.Term > term {
 				DPrintf("[%d]: %d 在新的term，更新term，结束\n", rf.me, serverId)
-				rf.currentTerm = reply.Term
+				rf.setNewTerm(reply.Term)
 				return
 			}
 			if reply.Term < term {
@@ -464,10 +462,7 @@ func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
-
-	rf.state = Follower
-	rf.currentTerm = args.Term
-
+	rf.setNewTerm(args.Term)
 	rf.lastHeatBeat = time.Now()
 	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
 }

@@ -102,8 +102,10 @@ type raftTimeConfig struct {
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
-	term := rf.getCurrentTerm()
-	isleader := rf.getRaftState() == Leader
+	rf.mu.Lock()
+	term := rf.currentTerm
+	isleader := rf.state == Leader
+	rf.mu.Unlock()
 	DPrintf("[%d]: term %d, isleader %v\n", rf.me, term, isleader)
 	return term, isleader
 }
@@ -191,30 +193,28 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	myTerm := rf.getCurrentTerm()
-
-	if args.Term < myTerm {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term < rf.currentTerm {
 		DPrintf("[%d]: received an old term %d, drop it\n", rf.me, args.Term)
 		return
 	}
-	if args.Term == myTerm {
+	if args.Term == rf.currentTerm {
 		DPrintf("[%d]: 选票瓜分，投票遵循先来后到\n", rf.me)
-		rf.mu.Lock()
 		if rf.votedFor == -1 {
 			DPrintf("[%d]: 之前没有投过票\n", rf.me)
 			rf.votedFor = args.CandidateID
 		}
-		rf.mu.Unlock()
-		DPrintf("[%d]: 当前term %d，投给 %d\n", rf.me, myTerm, rf.votedFor)
+		DPrintf("[%d]: 当前term %d，投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
 	}
-	if args.Term > myTerm {
-		rf.setCurrentTerm(args.Term)
-		rf.setVotedFor(args.CandidateID)
-		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, myTerm, rf.votedFor)
+	if args.Term > rf.currentTerm {
+		rf.currentTerm = args.Term
+		rf.votedFor = args.CandidateID
+		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
 	}
-	rf.updateLastHeartBeat()
-	reply.Term = rf.getCurrentTerm()
-	reply.VoteGranted = rf.getVotedFor() == args.CandidateID
+	rf.lastHeatBeat = time.Now()
+	reply.Term = rf.currentTerm
+	reply.VoteGranted = rf.votedFor == args.CandidateID
 	DPrintf("[%d]: send %#v\n", rf.me, reply)
 }
 
@@ -308,7 +308,7 @@ func (rf *Raft) ticker() {
 
 		state := rf.getRaftState()
 		if state == Leader {
-			rf.SendEntry()
+			rf.appendEntries()
 		}
 		if rf.timeSinceLastHeartBeat() > rf.electionTimeoutMs {
 			rf.leaderElection()
@@ -354,15 +354,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) leaderElection() {
 	DPrintf("[%d]: leader election\n", rf.me)
-
-	rf.incCurrentTerm()
-	rf.setRaftState(Candidate)
-	rf.setVotedFor(rf.me)
-	term := rf.getCurrentTerm()
+	rf.mu.Lock()
+	rf.currentTerm++
+	rf.state = Candidate
+	rf.votedFor = rf.me
+	rf.electionTimeoutMs = time.Duration(150 + rand.Intn(150)) * time.Millisecond
+	term := rf.currentTerm
 	voteCounter := 1
 	completed := false
 	DPrintf("[%d]: 增加任期编号%d\n", rf.me, term)
-
+	rf.mu.Unlock()
 
 	for serverId, _ := range rf.peers {
 		if serverId == rf.me {
@@ -380,10 +381,12 @@ func (rf *Raft) leaderElection() {
 			if !ok {
 				return
 			}
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
 			DPrintf("[%d]: receive vote from %d, 当前term %d 对方term %d\n", rf.me, serverId, term, reply.Term)
 			if reply.Term > term {
 				DPrintf("[%d]: %d 在新的term，更新term，结束\n", rf.me, serverId)
-				rf.setCurrentTerm(reply.Term)
+				rf.currentTerm = reply.Term
 				return
 			}
 			if reply.Term < term {
@@ -396,77 +399,77 @@ func (rf *Raft) leaderElection() {
 			}
 			DPrintf("[%d]: from %d term一致，且投给%d\n", rf.me, serverId, rf.me)
 
-			rf.mu.Lock()
 			voteCounter++
 
 			if completed || voteCounter <= len(rf.peers)/2 {
 				DPrintf("[%d] 当前票数 %d 结束\n", rf.me, voteCounter)
-				rf.mu.Unlock()
 				return
 			}
 			DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 			completed = true
-			rf.mu.Unlock()
-			if term != rf.getCurrentTerm() || rf.getRaftState() != Candidate {
+			if term != rf.currentTerm || rf.state != Candidate {
 				DPrintf("[%d]: term 过期，或者已经不是candidate，结束\n", rf.me)
 				return
 			}
 			DPrintf("[%d]: 成为leader\n", rf.me)
-			rf.setRaftState(Leader)
-			DPrintf("[%d]: state %v\n", rf.me, rf.getRaftState())
-
+			rf.state = Leader
+			DPrintf("[%d]: state %v\n", rf.me, rf.state)
 		}(serverId)
 	}
 }
 
-func (rf *Raft) SendEntry() {
-	term := rf.getCurrentTerm()
-	me := rf.me
+func (rf *Raft) appendEntries() {
+	rf.mu.Lock()
+	term := rf.currentTerm
+	rf.mu.Unlock()
 	args := RequestVoteArgs{
 		Term:        term,
-		CandidateID: me,
+		CandidateID: rf.me,
 	}
 	reply := RequestVoteReply{}
 	DPrintf("[%d] leader state %#v", rf.me, rf.getRaftState())
-	ackCounter := 1
-	var wg sync.WaitGroup
+	failures := 1
+	finished := true
 
 	for serverId, _ := range rf.peers {
-		if serverId == me {
-			rf.updateLastHeartBeat()
+		if serverId == rf.me {
+			rf.mu.Lock()
+			rf.lastHeatBeat = time.Now()
+			rf.mu.Unlock()
 			continue
 		}
-		wg.Add(1)
 		go func(serverId int) {
 			ack := rf.sendEntry(serverId, &args, &reply)
-			if ack {
+			if !ack {
 				rf.mu.Lock()
-				ackCounter++
-				rf.mu.Unlock()
+				defer rf.mu.Unlock()
+				failures++
+				if finished || failures <= len(rf.peers)/2 {
+					DPrintf("[%d] 失联个数 %d\n", rf.me, failures)
+					return
+				}
+				finished = true
+				rf.state = Follower
 			}
-			wg.Done()
 		}(serverId)
 	}
-	wg.Wait()
-	if ackCounter <= len(rf.peers)/2 {
-		 rf.setRaftState(Follower)
-	}
+
 }
 
 func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
 	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.CandidateID, args.Term)
-
-	currentTerm := rf.getCurrentTerm()
-	if args.Term < currentTerm {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term < rf.currentTerm {
 		return
 	}
-	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.CandidateID, currentTerm, rf.getRaftState())
+	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
 
-	rf.setRaftState(Follower)
-	rf.setCurrentTerm(args.Term)
+	rf.state = Follower
+	rf.currentTerm = args.Term
 
-	rf.updateLastHeartBeat()
-	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.CandidateID, rf.getCurrentTerm(), rf.getRaftState())
+	rf.lastHeatBeat = time.Now()
+	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
 }
 
 func (rf *Raft) sendEntry(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {

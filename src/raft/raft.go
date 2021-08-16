@@ -182,8 +182,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
-	Term     int
-	VotedFor int
+	Term        int
+	VoteGranted bool
 }
 
 //
@@ -214,7 +214,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	rf.updateLastHeartBeat()
 	reply.Term = rf.getCurrentTerm()
-	reply.VotedFor = rf.getVotedFor()
+	reply.VoteGranted = rf.getVotedFor() == args.CandidateID
 	DPrintf("[%d]: send %#v\n", rf.me, reply)
 }
 
@@ -390,7 +390,7 @@ func (rf *Raft) leaderElection() {
 				DPrintf("[%d]: %d 的term %d 已经失效，结束\n", rf.me, serverId, reply.Term)
 				return
 			}
-			if reply.VotedFor != rf.me {
+			if !reply.VoteGranted {
 				DPrintf("[%d]: %d 没有投给me，结束\n", rf.me, serverId)
 				return
 			}

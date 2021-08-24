@@ -176,6 +176,8 @@ type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
 	Term        int
 	CandidateID int
+	LastLogIndex int
+	LastLogTerm int
 }
 
 //

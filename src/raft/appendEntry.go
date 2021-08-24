@@ -2,16 +2,33 @@ package raft
 
 import "time"
 
-func (rf *Raft) appendEntries() {
+type AppendEntryArgs struct {
+	Term        int
+	LeaderID int
+	PrevLogIndex int
+	PrevLogTerm int
+	Entries []Entry
+	leaderCommit int
+}
+
+type AppendEntryReply struct {
+	Term int
+	Success bool
+}
+
+func (rf *Raft) appendEntries(index int) {
+	if index < 0 {
+
+	}
 	rf.mu.Lock()
 	term := rf.currentTerm
 	rf.mu.Unlock()
-	args := RequestVoteArgs{
+	args := AppendEntryArgs{
 		Term:        term,
-		CandidateID: rf.me,
+		LeaderID: rf.me,
 	}
-	reply := RequestVoteReply{}
-	DPrintf("[%d] leader state %#v", rf.me, rf.getRaftState())
+	reply := AppendEntryReply{}
+	DPrintf("[%d] leader state %#v", rf.me, rf.state)
 	failures := 1
 	finished := true
 
@@ -40,20 +57,20 @@ func (rf *Raft) appendEntries() {
 
 }
 
-func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
-	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.CandidateID, args.Term)
+func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
+	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.LeaderID, args.Term)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if args.Term < rf.currentTerm {
 		return
 	}
-	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
+	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.LeaderID, rf.currentTerm, rf.state)
 	rf.setNewTerm(args.Term)
 	rf.lastHeatBeat = time.Now()
-	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
+	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.LeaderID, rf.currentTerm, rf.state)
 }
 
-func (rf *Raft) sendEntry(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendEntry(server int, args *AppendEntryArgs, reply *AppendEntryReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
 	return ok
 }

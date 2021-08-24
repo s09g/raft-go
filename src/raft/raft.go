@@ -94,9 +94,9 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	term := rf.currentTerm
 	isleader := rf.state == Leader
-	rf.mu.Unlock()
 	DPrintf("[%d]: term %d, isleader %v\n", rf.me, term, isleader)
 	return term, isleader
 }
@@ -175,14 +175,26 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	// Your code here (2B).
+	if rf.state != Leader {
+		return -1, rf.currentTerm, false
+	}
+	index := rf.log.lastIndex() + 1
+	term := rf.currentTerm
 
+	entry := Entry{
+		Command: command,
+		Index:   index,
+		Term:    term,
+	}
 
-	return index, term, isLeader
+	rf.log.append(&entry)
+
+	//rf.persist()
+	rf.appendEntries(index)
+	return index, term, true
 }
 
 //
@@ -217,7 +229,7 @@ func (rf *Raft) ticker() {
 
 		state := rf.getRaftState()
 		if state == Leader {
-			rf.appendEntries()
+			rf.appendEntries(-1)
 		}
 		if rf.timeSinceLastHeartBeat() > rf.electionTimeoutMs {
 			rf.leaderElection()

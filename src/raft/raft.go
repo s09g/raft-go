@@ -59,10 +59,6 @@ const (
 	Leader              = "Leader"
 )
 
-type Log struct {
-
-}
-
 //
 // A Go object implementing a single Raft peer.
 //
@@ -80,7 +76,7 @@ type Raft struct {
 	appendEntryCh chan *Log
 	currentTerm   int
 	votedFor      int
-	log           []*Log
+	log           Log
 
 	commitIndex int
 	lastApplied int
@@ -184,6 +180,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
+
 
 	return index, term, isLeader
 }

@@ -22,13 +22,6 @@ func (rf *Raft) timeSinceLastHeartBeat() time.Duration {
 	return time.Since(lastHeatBeat)
 }
 
-func (rf *Raft) getRaftState() RaftState {
-	rf.mu.Lock()
-	state := rf.state
-	rf.mu.Unlock()
-	return state
-}
-
 func (rf *Raft) setNewTerm(term int) {
 	rf.currentTerm = term
 	rf.state = Follower

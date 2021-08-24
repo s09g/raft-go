@@ -59,7 +59,9 @@ const (
 	Leader              = "Leader"
 )
 
-type Log string
+type Log struct {
+
+}
 
 //
 // A Go object implementing a single Raft peer.
@@ -76,11 +78,6 @@ type Raft struct {
 	// state a Raft server must maintain.
 	state         RaftState
 	appendEntryCh chan *Log
-	raftServerState
-	raftTimeConfig
-}
-
-type raftServerState struct {
 	currentTerm   int
 	votedFor      int
 	log           []*Log
@@ -90,9 +87,7 @@ type raftServerState struct {
 
 	nextIndex  []int
 	matchIndex []int
-}
 
-type raftTimeConfig struct {
 	heartBeat         time.Duration
 	lastHeatBeat      time.Time
 	electionTimeoutMs time.Duration

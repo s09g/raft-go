@@ -59,8 +59,6 @@ const (
 	Leader              = "Leader"
 )
 
-type Log string
-
 //
 // A Go object implementing a single Raft peer.
 //
@@ -76,23 +74,16 @@ type Raft struct {
 	// state a Raft server must maintain.
 	state         RaftState
 	appendEntryCh chan *Log
-	raftServerState
-	raftTimeConfig
-}
-
-type raftServerState struct {
 	currentTerm   int
 	votedFor      int
-	log           []*Log
+	log           Log
 
 	commitIndex int
 	lastApplied int
 
 	nextIndex  []int
 	matchIndex []int
-}
 
-type raftTimeConfig struct {
 	heartBeat         time.Duration
 	lastHeatBeat      time.Time
 	electionTimeoutMs time.Duration
@@ -103,9 +94,9 @@ type raftTimeConfig struct {
 func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	term := rf.currentTerm
 	isleader := rf.state == Leader
-	rf.mu.Unlock()
 	DPrintf("[%d]: term %d, isleader %v\n", rf.me, term, isleader)
 	return term, isleader
 }
@@ -168,92 +159,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-//
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-	Term        int
-	CandidateID int
-	LastLogIndex int
-	LastLogTerm int
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
-	Term        int
-	VoteGranted bool
-}
-
-//
-// example RequestVote RPC handler.
-//
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if args.Term < rf.currentTerm {
-		reply.VoteGranted = false
-		DPrintf("[%d]: received an old term %d, drop it\n", rf.me, args.Term)
-		return
-	}
-	if args.Term == rf.currentTerm {
-		DPrintf("[%d]: 选票瓜分，投票遵循先来后到\n", rf.me)
-		if rf.votedFor == -1 {
-			DPrintf("[%d]: 之前没有投过票\n", rf.me)
-			rf.votedFor = args.CandidateID
-		}
-		DPrintf("[%d]: 当前term %d，投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
-	}
-	if args.Term > rf.currentTerm {
-		rf.setNewTerm(args.Term)
-		rf.votedFor = args.CandidateID
-		DPrintf("[%d]: received 新的term %d, 投给 %d\n", rf.me, rf.currentTerm, rf.votedFor)
-	}
-	rf.lastHeatBeat = time.Now()
-	reply.Term = rf.currentTerm
-	reply.VoteGranted = rf.votedFor == args.CandidateID
-	DPrintf("[%d]: send %#v\n", rf.me, reply)
-}
-
-//
-// example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-//
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
-}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -270,13 +175,26 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	// Your code here (2B).
+	if rf.state != Leader {
+		return -1, rf.currentTerm, false
+	}
+	index := rf.log.lastIndex() + 1
+	term := rf.currentTerm
 
-	return index, term, isLeader
+	entry := Entry{
+		Command: command,
+		Index:   index,
+		Term:    term,
+	}
+
+	rf.log.append(&entry)
+
+	//rf.persist()
+	rf.appendEntries(index)
+	return index, term, true
 }
 
 //
@@ -311,7 +229,7 @@ func (rf *Raft) ticker() {
 
 		state := rf.getRaftState()
 		if state == Leader {
-			rf.appendEntries()
+			rf.appendEntries(-1)
 		}
 		if rf.timeSinceLastHeartBeat() > rf.electionTimeoutMs {
 			rf.leaderElection()
@@ -416,60 +334,4 @@ func (rf *Raft) leaderElection() {
 			DPrintf("[%d]: state %v\n", rf.me, rf.state)
 		}(serverId)
 	}
-}
-
-func (rf *Raft) appendEntries() {
-	rf.mu.Lock()
-	term := rf.currentTerm
-	rf.mu.Unlock()
-	args := RequestVoteArgs{
-		Term:        term,
-		CandidateID: rf.me,
-	}
-	reply := RequestVoteReply{}
-	DPrintf("[%d] leader state %#v", rf.me, rf.getRaftState())
-	failures := 1
-	finished := true
-
-	for serverId, _ := range rf.peers {
-		if serverId == rf.me {
-			rf.mu.Lock()
-			rf.lastHeatBeat = time.Now()
-			rf.mu.Unlock()
-			continue
-		}
-		go func(serverId int) {
-			ack := rf.sendEntry(serverId, &args, &reply)
-			if !ack {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				failures++
-				if finished || failures <= len(rf.peers)/2 {
-					DPrintf("[%d] 失联个数 %d\n", rf.me, failures)
-					return
-				}
-				finished = true
-				rf.state = Follower
-			}
-		}(serverId)
-	}
-
-}
-
-func (rf *Raft) AppendEntry(args *RequestVoteArgs, reply *RequestVoteReply) {
-	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.CandidateID, args.Term)
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if args.Term < rf.currentTerm {
-		return
-	}
-	DPrintf("[%d]: 收到 %d 心跳 当前 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
-	rf.setNewTerm(args.Term)
-	rf.lastHeatBeat = time.Now()
-	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.CandidateID, rf.currentTerm, rf.state)
-}
-
-func (rf *Raft) sendEntry(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
-	return ok
 }

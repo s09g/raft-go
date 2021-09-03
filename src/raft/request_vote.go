@@ -1,6 +1,6 @@
 package raft
 
-
+import "sync"
 
 //
 // example RequestVote RPC arguments structure.
@@ -66,5 +66,36 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 
-func (rf *Raft) candidateRequestVote(peer int) {
+func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCounter *int, becameLeader sync.Once) {
+	reply := RequestVoteReply{}
+	ok := rf.sendRequestVote(serverId, args, &reply)
+	if !ok {
+		return
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if reply.Term > args.Term {
+		DPrintf("[%d]: %d 在新的term，更新term，结束\n", rf.me, serverId)
+		rf.setNewTerm(reply.Term)
+		return
+	}
+	if reply.Term < args.Term {
+		DPrintf("[%d]: %d 的term %d 已经失效，结束\n", rf.me, serverId, reply.Term)
+		return
+	}
+	if !reply.VoteGranted {
+		DPrintf("[%d]: %d 没有投给me，结束\n", rf.me, serverId)
+		return
+	}
+	DPrintf("[%d]: from %d term一致，且投给%d\n", rf.me, serverId, rf.me)
+
+	*voteCounter++
+
+	if *voteCounter > len(rf.peers) / 2 && rf.currentTerm == args.Term && rf.state == Candidate {
+		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
+		becameLeader.Do(func() {
+			DPrintf("[%d] 当前票数 %d 结束\n", rf.me, voteCounter)
+			rf.state = Leader
+		})
+	}
 }

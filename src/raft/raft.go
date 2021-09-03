@@ -283,6 +283,16 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
+		time.Sleep(rf.heartBeat)
+		rf.mu.Lock()
+		if rf.state == Leader {
+			// heartbeat
+		}
+		if time.Since(rf.lastHeartBeat) > rf.electionTimeout {
+			rf.leaderElection()
+		}
+
+		rf.mu.Unlock()
 
 	}
 }
@@ -339,3 +349,20 @@ func (rf *Raft) reinitializeLeaderState() {
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 }
+
+func (rf *Raft) leaderElection() {
+	rf.currentTerm++
+	rf.state = Candidate
+	rf.votedFor = rf.me
+	rf.resetElectionTimeout()
+	term := rf.currentTerm
+	voteCounter := 1
+
+	for serverId, _ := range rf.peers {
+		if serverId != rf.me {
+			go rf.candidateRequestVote(serverId)
+		}
+
+	}
+}
+

@@ -52,12 +52,6 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
-type Log struct {
-	command interface{}
-	index int
-	term int
-}
-
 type RaftState string
 
 const (

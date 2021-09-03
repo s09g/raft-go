@@ -18,9 +18,11 @@ package raft
 //
 
 import (
+	"math/rand"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	//	"../labgob"
 	"../labrpc"
@@ -50,6 +52,20 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+type Log struct {
+	command interface{}
+	index int
+	term int
+}
+
+type RaftState string
+
+const (
+	Leader RaftState = "Leader"
+	Follower = "Follower"
+	Candidate = "Candidate"
+)
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -64,6 +80,24 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	state RaftState
+	appendEntryCh chan *Log
+	heartBeat time.Duration
+	lastHeartBeat time.Time
+	electionTimeout time.Duration
+
+	// Persistent state on all servers:
+	currentTerm int
+	votedFor int
+	log []Log
+
+	// Volatile state on all servers:
+	commitIndex int
+	lastApplied int
+
+	// Volatile state on leaders:
+	nextIndex []int
+	matchIndex []int
 }
 
 // return currentTerm and whether this server
@@ -272,6 +306,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+	rf.setNewTerm()
+	rf.heartBeat = 50 * time.Millisecond
+	rf.lastHeartBeat = time.Now()
+	rf.resetElectionTimeout()
+
+	rf.log = make([]Log, 0)
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	rf.reinitializeLeaderState()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -279,6 +322,20 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start ticker goroutine to start elections
 	go rf.ticker()
 
-
 	return rf
+}
+
+func (rf *Raft) resetElectionTimeout() {
+	rf.electionTimeout = time.Duration(150+rand.Intn(150)) * time.Millisecond
+}
+
+func (rf *Raft) setNewTerm() {
+	rf.state = Follower
+	rf.currentTerm = 0
+	rf.votedFor = -1
+}
+
+func (rf *Raft) reinitializeLeaderState() {
+	rf.nextIndex = make([]int, len(rf.peers))
+	rf.matchIndex = make([]int, len(rf.peers))
 }

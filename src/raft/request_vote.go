@@ -29,6 +29,35 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// rules for servers
+	// all servers 2
+	if args.Term > rf.currentTerm {
+		rf.setNewTerm(args.Term)
+	}
+
+	// request vote rpc receiver 1
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
+		return
+	}
+
+	// request vote rpc receiver 2
+	myLastLog := rf.lastLog()
+
+	updateToDate := args.LastLogTerm > myLastLog.term ||
+		(args.LastLogTerm == myLastLog.term && args.LastLogIndex >= myLastLog.index)
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && updateToDate {
+		reply.VoteGranted = true
+		rf.votedFor = args.CandidateId
+	} else {
+		reply.VoteGranted = false
+	}
+	reply.Term = rf.currentTerm
+	rf.resetElectionTimeout()
 }
 
 //
@@ -66,7 +95,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 
-func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCounter *int, becameLeader sync.Once) {
+func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCounter *int, becameLeader *sync.Once) {
 	reply := RequestVoteReply{}
 	ok := rf.sendRequestVote(serverId, args, &reply)
 	if !ok {

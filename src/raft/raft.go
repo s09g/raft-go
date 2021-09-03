@@ -257,12 +257,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-	rf.setNewTerm()
+	rf.setNewTerm(0)
 	rf.heartBeat = 50 * time.Millisecond
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 
 	rf.log = make([]Log, 0)
+	rf.appendLog(&Log{})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.reinitializeLeaderState()
@@ -280,9 +281,9 @@ func (rf *Raft) resetElectionTimeout() {
 	rf.electionTimeout = time.Duration(150+rand.Intn(150)) * time.Millisecond
 }
 
-func (rf *Raft) setNewTerm() {
+func (rf *Raft) setNewTerm(term int) {
 	rf.state = Follower
-	rf.currentTerm = 0
+	rf.currentTerm = term
 	rf.votedFor = -1
 }
 
@@ -298,10 +299,19 @@ func (rf *Raft) leaderElection() {
 	rf.resetElectionTimeout()
 	term := rf.currentTerm
 	voteCounter := 1
+	lastLog := rf.lastLog()
 
+	args := RequestVoteArgs{
+		Term:         term,
+		CandidateId:  rf.me,
+		LastLogIndex: lastLog.index,
+		LastLogTerm:  lastLog.term,
+	}
+
+	var becameLeader sync.Once
 	for serverId, _ := range rf.peers {
 		if serverId != rf.me {
-			go rf.candidateRequestVote(serverId)
+			go rf.candidateRequestVote(serverId, &args, &voteCounter, becameLeader)
 		}
 
 	}

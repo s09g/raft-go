@@ -16,25 +16,36 @@ type AppendEntriesReply struct {
 
 func (rf *Raft) appendEntries(heartbeat bool) {
 	lastIndex := rf.lastLog().index
-	for i, _ := range rf.peers {
-		if i == rf.me {
+	for peer, _ := range rf.peers {
+		if peer == rf.me {
 			rf.resetElectionTimeout()
 			continue
 		}
-		if lastIndex > rf.nextIndex[i] || heartbeat {
-			rf.sendEntries(i, heartbeat)
+		if lastIndex > rf.nextIndex[peer] || heartbeat {
+			nextIndex := rf.nextIndex[peer]
+			lastLog := rf.lastLog()
+			if nextIndex <= 0{
+				nextIndex = 1
+			}
+
+			if nextIndex > lastLog.index + 1 {
+				nextIndex = lastLog.index
+			}
+			prevLog := rf.log[nextIndex - 1]
+			args := AppendEntriesArgs{
+				Term:         rf.currentTerm,
+				LeaderId:     rf.me,
+				PrevLogIndex: prevLog.index,
+				PrevLogTerm:  prevLog.term,
+				Entries:      make([]Log, lastLog.index - nextIndex + 1),
+				LeaderCommit: rf.commitIndex,
+			}
+			copy(args.Entries, rf.log[nextIndex:])
+			go rf.leaderSendEntries(peer, &args)
 		}
 	}
 }
 
-
-func (rf *Raft) sendEntries(peer int, heartbeat bool) {
-
-
-}
-
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-}
 
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {

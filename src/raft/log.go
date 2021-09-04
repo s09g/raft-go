@@ -1,9 +1,9 @@
 package raft
 
 type Log struct {
-	command interface{}
-	index int
-	term int
+	Command interface{}
+	Index   int
+	Term    int
 }
 
 func (rf *Raft) lastLog() *Log {

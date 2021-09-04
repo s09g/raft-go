@@ -297,8 +297,8 @@ func (rf *Raft) leaderElection() {
 	args := RequestVoteArgs{
 		Term:         term,
 		CandidateId:  rf.me,
-		LastLogIndex: lastLog.index,
-		LastLogTerm:  lastLog.term,
+		LastLogIndex: lastLog.Index,
+		LastLogTerm:  lastLog.Term,
 	}
 
 	var becameLeader sync.Once
@@ -311,7 +311,7 @@ func (rf *Raft) leaderElection() {
 
 func (rf *Raft) runLeader() {
 	rf.state = Leader
-	lastLogIndex := rf.lastLog().index
+	lastLogIndex := rf.lastLog().Index
 	for i := range rf.nextIndex {
 		rf.nextIndex[i] = lastLogIndex + 1
 	}

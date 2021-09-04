@@ -55,9 +55,9 @@ type ApplyMsg struct {
 type RaftState string
 
 const (
-	Leader RaftState = "Leader"
-	Follower = "Follower"
+	Follower RaftState = "Follower"
 	Candidate = "Candidate"
+	Leader  = "Leader"
 )
 
 //
@@ -222,13 +222,12 @@ func (rf *Raft) ticker() {
 		rf.mu.Lock()
 		if rf.state == Leader {
 			// heartbeat
+			rf.appendEntries(true)
 		}
 		if time.Since(rf.lastHeartBeat) > rf.electionTimeout {
 			rf.leaderElection()
 		}
-
 		rf.mu.Unlock()
-
 	}
 }
 
@@ -260,7 +259,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.appendLog(&Log{})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
-	rf.reinitializeLeaderState()
+	rf.nextIndex = make([]int, len(rf.peers))
+	rf.matchIndex = make([]int, len(rf.peers))
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -275,15 +275,14 @@ func (rf *Raft) resetElectionTimeout() {
 	rf.electionTimeout = time.Duration(150+rand.Intn(150)) * time.Millisecond
 }
 
-func (rf *Raft) setNewTerm(term int) {
-	rf.state = Follower
-	rf.currentTerm = term
-	rf.votedFor = -1
-}
-
-func (rf *Raft) reinitializeLeaderState() {
-	rf.nextIndex = make([]int, len(rf.peers))
-	rf.matchIndex = make([]int, len(rf.peers))
+func (rf *Raft) setNewTerm(term int) bool {
+	if term > rf.currentTerm || rf.currentTerm == 0 {
+		rf.state = Follower
+		rf.currentTerm = term
+		rf.votedFor = -1
+		return true
+	}
+	return false
 }
 
 func (rf *Raft) leaderElection() {
@@ -305,9 +304,16 @@ func (rf *Raft) leaderElection() {
 	var becameLeader sync.Once
 	for serverId, _ := range rf.peers {
 		if serverId != rf.me {
-			go rf.candidateRequestVote(serverId, &args, &voteCounter, becameLeader)
+			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becameLeader)
 		}
-
 	}
 }
 
+func (rf *Raft) runLeader() {
+	rf.state = Leader
+	lastLogIndex := rf.lastLog().index
+	for i := range rf.nextIndex {
+		rf.nextIndex[i] = lastLogIndex + 1
+	}
+	rf.appendEntries(true)
+}

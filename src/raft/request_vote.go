@@ -124,7 +124,7 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 		becameLeader.Do(func() {
 			DPrintf("[%d] 当前票数 %d 结束\n", rf.me, voteCounter)
-			rf.state = Leader
+			go rf.runLeader()
 		})
 	}
 }

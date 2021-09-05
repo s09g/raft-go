@@ -1,5 +1,7 @@
 package raft
 
+import "time"
+
 type AppendEntriesArgs struct {
 	Term int
 	LeaderId int
@@ -15,23 +17,19 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) appendEntries(heartbeat bool) {
-	lastIndex := rf.lastLog().Index
+	lastLog := rf.lastLog()
+	DPrintf("[%d] leader state %#v, last : %#v", rf.me, rf.state, lastLog)
 	for peer, _ := range rf.peers {
 		if peer == rf.me {
 			rf.resetElectionTimeout()
 			continue
 		}
 		// rules for leader 3
-		if lastIndex > rf.nextIndex[peer] || heartbeat {
+		if lastLog.Index > rf.nextIndex[peer] || heartbeat {
 			nextIndex := rf.nextIndex[peer]
-			lastLog := rf.lastLog()
-			if nextIndex <= 0{
-				nextIndex = 1
-			}
+			DPrintf("[%d] server id: %v, last index: %#v", rf.me, peer, rf.nextIndex)
 
-			if nextIndex > lastLog.Index+ 1 {
-				nextIndex = lastLog.Index
-			}
+
 			prevLog := rf.log[nextIndex - 1]
 			args := AppendEntriesArgs{
 				Term:         rf.currentTerm,
@@ -48,6 +46,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 }
 
 func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
+	DPrintf("%v: leaderSendEntries to %v: %#v\n", rf.me, serverId, args)
 	var reply AppendEntriesReply
 	ok := rf.sendAppendEntries(serverId, args, &reply)
 	if !ok {
@@ -55,24 +54,25 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if reply.Term > rf.currentTerm {
-		rf.setNewTerm(reply.Term)
-		return
-	}
-	if reply.Term == rf.currentTerm {
-		// rules for leader 3.1
-		if reply.Success {
-			rf.nextIndex[serverId]++
-			rf.matchIndex[serverId]++
-		} else {
-			rf.nextIndex[serverId]--
-		}
-	}
+	//if reply.Term > rf.currentTerm {
+	//	rf.setNewTerm(reply.Term)
+	//	return
+	//}
+	//if reply.Term == rf.currentTerm {
+	//	// rules for leader 3.1
+	//	if reply.Success {
+	//		rf.nextIndex[serverId]++
+	//		rf.matchIndex[serverId]++
+	//	} else {
+	//		rf.nextIndex[serverId]--
+	//	}
+	//}
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.LeaderId, args.Term)
 	// rules for servers
 	// all servers 2
 	if args.Term > rf.currentTerm {
@@ -89,6 +89,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		return
 	}
+	rf.lastHeartBeat = time.Now()
 	// append entries rpc 3 & 4
 	if len(rf.log) - 1 >= args.PrevLogIndex {
 		// append entries rpc 3
@@ -101,6 +102,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
 	}
 	reply.Success = true
+	DPrintf("[%d]: 收到 %d 心跳 最终 term %d state %v\n", rf.me, args.LeaderId, rf.currentTerm, rf.state)
 }
 
 

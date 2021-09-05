@@ -1,6 +1,9 @@
 package raft
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 //
 // example RequestVote RPC arguments structure.
@@ -57,6 +60,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 	}
 	reply.Term = rf.currentTerm
+	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 }
 
@@ -96,6 +100,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 
 func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCounter *int, becameLeader *sync.Once) {
+	DPrintf("[%d]: send vote request to %d\n", rf.me, serverId)
 	reply := RequestVoteReply{}
 	ok := rf.sendRequestVote(serverId, args, &reply)
 	if !ok {
@@ -120,10 +125,12 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 
 	*voteCounter++
 
-	if *voteCounter > len(rf.peers) / 2 && rf.currentTerm == args.Term && rf.state == Candidate {
+	if *voteCounter > len(rf.peers) / 2 &&
+		rf.currentTerm == args.Term &&
+		rf.state == Candidate {
 		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 		becameLeader.Do(func() {
-			DPrintf("[%d] 当前票数 %d 结束\n", rf.me, voteCounter)
+			DPrintf("[%d] 当前票数 %d 结束\n", rf.me, *voteCounter)
 			go rf.runLeader()
 		})
 	}

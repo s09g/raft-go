@@ -51,20 +51,23 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	//if reply.Term > rf.currentTerm {
-	//	rf.setNewTerm(reply.Term)
-	//	return
-	//}
-	//if reply.Term == rf.currentTerm {
-	//	// rules for leader 3.1
-	//	if reply.Success {
-	//		rf.nextIndex[serverId]++
-	//		rf.matchIndex[serverId]++
-	//	} else {
-	//		rf.nextIndex[serverId]--
-	//	}
-	//}
+	if reply.Term > rf.currentTerm {
+		rf.setNewTerm(reply.Term)
+		return
+	}
+	if reply.Term == rf.currentTerm {
+		// rules for leader 3.1
+		if reply.Success {
+			successLog := args.Entries[len(args.Entries) - 1]
+			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], successLog.Index + 1)
+			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], successLog.Index)
+		}
+		//else {
+		//	rf.nextIndex[serverId]--
+		//}
+	}
 }
+
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
@@ -72,27 +75,36 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	DPrintf("[%d]: 收到 %d 心跳 对方term %d\n", rf.me, args.LeaderId, args.Term)
 	// rules for servers
 	// all servers 2
+	reply.Success = false
+	reply.Term = rf.currentTerm
 	if args.Term > rf.currentTerm {
 		rf.setNewTerm(args.Term)
+		return
 	}
-	reply.Term = rf.currentTerm
+
 	// append entries rpc 1
 	if args.Term < rf.currentTerm {
-		reply.Success = false
 		return
 	}
+
 	// append entries rpc 2
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		reply.Success = false
 		return
 	}
-	// append entries rpc 3 & 4
-	if len(rf.log) - 1 >= args.PrevLogIndex {
-		// append entries rpc 3
+
+	// append entries rpc 3
+	if rf.log[args.PrevLogIndex+1].Term != args.Term {
 		rf.log = rf.log[: args.PrevLogIndex + 1]
-		// append entries rpc 4
-		rf.log = append(rf.log, args.Entries...)
 	}
+
+	// append entries rpc 4
+	for i, entry := range args.Entries {
+		if entry.Index >= len(rf.log) || rf.log[entry.Index].Term != entry.Term {
+			rf.log = append(rf.log, args.Entries[i:]...)
+			break
+		}
+	}
+
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)

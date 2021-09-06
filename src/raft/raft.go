@@ -230,6 +230,29 @@ func (rf *Raft) ticker() {
 	}
 }
 
+func (rf *Raft) leaderCommitRule() {
+	// leader rule 4
+	if rf.state != Leader {
+		return
+	}
+	for n := rf.commitIndex + 1; n <= rf.lastLog().Index; n++ {
+		if rf.log[n].Term != rf.currentTerm {
+			break
+		}
+		counter := 1
+		for serverId := 0; serverId < len(rf.peers); serverId++ {
+			if serverId != rf.me && rf.matchIndex[serverId] >= n {
+				counter++
+			}
+			if counter > len(rf.peers) / 2 {
+				rf.commitIndex = n
+				break
+			}
+		}
+		rf.apply()
+	}
+}
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this

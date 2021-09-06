@@ -67,6 +67,8 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			}
 		}
 	}
+
+	rf.leaderCommitRule()
 }
 
 

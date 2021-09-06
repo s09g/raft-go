@@ -169,14 +169,24 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.state != Leader {
+		return -1, rf.currentTerm, false
+	}
+	index := rf.lastLog().Index + 1
+	term := rf.currentTerm
 
-	// Your code here (2B).
+	log := Log{
+		Command: command,
+		Index:   index,
+		Term:    term,
+	}
+	rf.appendLog(&log)
+	rf.persist()
+	rf.appendEntries(false)
 
-
-	return index, term, isLeader
+	return index, term, true
 }
 
 //

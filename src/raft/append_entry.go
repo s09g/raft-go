@@ -61,10 +61,11 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			successLog := args.Entries[len(args.Entries) - 1]
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], successLog.Index + 1)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], successLog.Index)
+		} else {
+			if rf.nextIndex[serverId] > 1 {
+				rf.nextIndex[serverId]--
+			}
 		}
-		//else {
-		//	rf.nextIndex[serverId]--
-		//}
 	}
 }
 

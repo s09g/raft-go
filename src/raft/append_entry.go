@@ -58,9 +58,10 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	if reply.Term == rf.currentTerm {
 		// rules for leader 3.1
 		if reply.Success {
-			successLog := args.Entries[len(args.Entries) - 1]
-			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], successLog.Index + 1)
-			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], successLog.Index)
+			match := args.PrevLogIndex + len(args.Entries)
+			next := match + 1
+			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
+			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
 		} else {
 			if rf.nextIndex[serverId] > 1 {
 				rf.nextIndex[serverId]--
@@ -96,7 +97,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	// append entries rpc 3
-	if rf.log[args.PrevLogIndex+1].Term != args.Term {
+	if args.PrevLogIndex + 1 > len(rf.log) && rf.log[args.PrevLogIndex+1].Term != args.Term {
 		rf.log = rf.log[: args.PrevLogIndex + 1]
 	}
 

@@ -251,7 +251,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
 	rf.setNewTerm(0)
-	rf.heartBeat = 50 * time.Millisecond
+	rf.heartBeat = 30 * time.Millisecond
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 
@@ -273,7 +273,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) resetElectionTimeout() {
 	rf.electionTimeout = time.Duration(150 + rand.Intn(150)) * time.Millisecond
-	DPrintf("[%v] reset resetElectionTimeout %v\n", rf.me, rf.electionTimeout)
 }
 
 func (rf *Raft) setNewTerm(term int) bool {
@@ -310,17 +309,4 @@ func (rf *Raft) leaderElection() {
 			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becameLeader)
 		}
 	}
-}
-
-func (rf *Raft) runLeader() {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	rf.state = Leader
-	lastLogIndex := rf.lastLog().Index
-	for i := range rf.nextIndex {
-		rf.nextIndex[i] = lastLogIndex + 1
-	}
-	DPrintf("[%d] leader - nextIndex %#v", rf.me, rf.nextIndex)
-
-	rf.appendEntries(true)
 }

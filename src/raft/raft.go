@@ -91,6 +91,9 @@ type Raft struct {
 	// Volatile state on leaders:
 	nextIndex []int
 	matchIndex []int
+
+	applyCh   chan ApplyMsg
+	applyCond *sync.Cond
 }
 
 
@@ -237,7 +240,7 @@ func (rf *Raft) leaderCommitRule() {
 	}
 	for n := rf.commitIndex + 1; n <= rf.lastLog().Index; n++ {
 		if rf.log[n].Term != rf.currentTerm {
-			break
+			continue
 		}
 		counter := 1
 		for serverId := 0; serverId < len(rf.peers); serverId++ {
@@ -249,8 +252,8 @@ func (rf *Raft) leaderCommitRule() {
 				break
 			}
 		}
-		rf.apply()
 	}
+	rf.apply()
 }
 
 //
@@ -285,11 +288,43 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 
+	rf.applyCh = applyCh
+	rf.applyCond = sync.NewCond(&rf.mu)
+
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
 
+	go rf.applier()
 	return rf
+}
+
+
+func (rf *Raft) apply() {
+	rf.applyCond.Broadcast()
+}
+
+func (rf *Raft) applier() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	rf.lastApplied = 0
+
+	for !rf.killed() {
+		if rf.lastApplied < rf.commitIndex {
+			rf.lastApplied++
+			applyMsg := ApplyMsg{
+				CommandValid:  true,
+				Command:       rf.log[rf.lastApplied].Command,
+				CommandIndex:  rf.lastApplied,
+			}
+			rf.mu.Unlock()
+			rf.applyCh <- applyMsg
+			rf.mu.Lock()
+		} else {
+			rf.applyCond.Wait()
+		}
+	}
 }

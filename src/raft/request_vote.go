@@ -135,7 +135,7 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 				rf.nextIndex[i] = lastLogIndex + 1
 			}
 			DPrintf("[%d] leader - nextIndex %#v", rf.me, rf.nextIndex)
-			go rf.appendEntries(true)
+			rf.appendEntries(true)
 		})
 	}
 }

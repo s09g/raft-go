@@ -2,7 +2,6 @@ package raft
 
 import (
 	"sync"
-	"time"
 )
 
 //
@@ -60,7 +59,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 	}
 	reply.Term = rf.currentTerm
-	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 }
 
@@ -131,7 +129,13 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 		becameLeader.Do(func() {
 			DPrintf("[%d] 当前票数 %d 结束\n", rf.me, *voteCounter)
-			go rf.runLeader()
+			rf.state = Leader
+			lastLogIndex := rf.lastLog().Index
+			for i := range rf.nextIndex {
+				rf.nextIndex[i] = lastLogIndex + 1
+			}
+			DPrintf("[%d] leader - nextIndex %#v", rf.me, rf.nextIndex)
+			go rf.appendEntries(true)
 		})
 	}
 }

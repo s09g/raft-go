@@ -50,16 +50,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// request vote rpc receiver 2
 	myLastLog := rf.lastLog()
 
-	updateToDate := args.LastLogTerm > myLastLog.Term ||
+	upToDate := args.LastLogTerm > myLastLog.Term ||
 		(args.LastLogTerm == myLastLog.Term && args.LastLogIndex >= myLastLog.Index)
-	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && updateToDate {
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
+		rf.resetElectionTimeout()
 	} else {
 		reply.VoteGranted = false
 	}
 	reply.Term = rf.currentTerm
-	rf.resetElectionTimeout()
 }
 
 //

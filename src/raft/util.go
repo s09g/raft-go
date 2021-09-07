@@ -15,15 +15,16 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-func (rf *Raft) timeSinceLastHeartBeat() time.Duration {
-	rf.mu.Lock()
-	lastHeatBeat := rf.lastHeatBeat
-	rf.mu.Unlock()
-	return time.Since(lastHeatBeat)
+func min(a int, b int) int {
+	if a > b {
+		return b
+	}
+	return a
 }
 
-func (rf *Raft) setNewTerm(term int) {
-	rf.currentTerm = term
-	rf.state = Follower
-	rf.votedFor = -1
+func max(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

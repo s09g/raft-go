@@ -1,21 +1,15 @@
 package raft
 
 type Log struct {
-	entries []Entry
-	offset int
-}
-
-func (l *Log) lastIndex() int {
-	index := l.offset + len(l.entries) - 1
-	return index
-}
-
-func (l *Log) append(e *Entry) {
-	l.entries = append(l.entries, *e)
-}
-
-type Entry struct {
 	Command interface{}
-	Index int
-	Term int
+	Index   int
+	Term    int
+}
+
+func (rf *Raft) lastLog() *Log {
+	return &rf.log[len(rf.log) - 1]
+}
+
+func (rf *Raft) appendLog(log *Log) {
+	rf.log = append(rf.log, *log)
 }

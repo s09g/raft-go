@@ -54,9 +54,9 @@ type ApplyMsg struct {
 type RaftState string
 
 const (
-	Follower  RaftState = "Follower"
-	Candidate           = "Candidate"
-	Leader              = "Leader"
+	Follower RaftState = "Follower"
+	Candidate = "Candidate"
+	Leader  = "Leader"
 )
 
 //
@@ -81,25 +81,29 @@ type Raft struct {
 	commitIndex int
 	lastApplied int
 
-	nextIndex  []int
+	state RaftState
+	appendEntryCh chan *Log
+	heartBeat time.Duration
+	lastHeartBeat time.Time
+	electionTimeout time.Duration
+
+	// Persistent state on all servers:
+	currentTerm int
+	votedFor int
+	log []Log
+
+	// Volatile state on all servers:
+	commitIndex int
+	lastApplied int
+
+	// Volatile state on leaders:
+	nextIndex []int
 	matchIndex []int
 
-	heartBeat         time.Duration
-	lastHeatBeat      time.Time
-	electionTimeoutMs time.Duration
+	applyCh   chan ApplyMsg
+	applyCond *sync.Cond
 }
 
-// return currentTerm and whether this server
-// believes it is the leader.
-func (rf *Raft) GetState() (int, bool) {
-	// Your code here (2A).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	term := rf.currentTerm
-	isleader := rf.state == Leader
-	DPrintf("[%d]: term %d, isleader %v\n", rf.me, term, isleader)
-	return term, isleader
-}
 
 //
 // save Raft's persistent state to stable storage,
@@ -177,23 +181,22 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-
 	if rf.state != Leader {
 		return -1, rf.currentTerm, false
 	}
-	index := rf.log.lastIndex() + 1
+	index := rf.lastLog().Index + 1
 	term := rf.currentTerm
 
-	entry := Entry{
+	log := Log{
 		Command: command,
 		Index:   index,
 		Term:    term,
 	}
+	DPrintf("[%v] 收到log %v", rf.me, log)
+	rf.appendLog(&log)
+	rf.persist()
+	rf.appendEntries(false)
 
-	rf.log.append(&entry)
-
-	//rf.persist()
-	rf.appendEntries(index)
 	return index, term, true
 }
 
@@ -226,16 +229,17 @@ func (rf *Raft) ticker() {
 		// be started and to randomize sleeping time using
 		// time.Sleep().
 		time.Sleep(rf.heartBeat)
-
-		state := rf.getRaftState()
-		if state == Leader {
-			rf.appendEntries(-1)
+		rf.mu.Lock()
+		if rf.state == Leader {
+			rf.appendEntries(true)
 		}
-		if rf.timeSinceLastHeartBeat() > rf.electionTimeoutMs {
+		if time.Since(rf.lastHeartBeat) > rf.electionTimeout {
 			rf.leaderElection()
 		}
+		rf.mu.Unlock()
 	}
 }
+
 
 //
 // the service or tester wants to create a Raft server. the ports
@@ -258,80 +262,59 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
 	rf.setNewTerm(0)
-	rf.heartBeat = 20 * time.Millisecond
-	rf.lastHeatBeat = time.Now()
-	rf.electionTimeoutMs = time.Duration(150 + rand.Intn(150)) * time.Millisecond
+	rf.heartBeat = 30 * time.Millisecond
+	rf.lastHeartBeat = time.Now()
+	rf.resetElectionTimeout()
+
+	rf.log = make([]Log, 0)
+	rf.appendLog(&Log{})
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	rf.nextIndex = make([]int, len(rf.peers))
+	rf.matchIndex = make([]int, len(rf.peers))
+
+	rf.applyCh = applyCh
+	rf.applyCond = sync.NewCond(&rf.mu)
+
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
 
+	go rf.applier()
 	return rf
 }
 
-func (rf *Raft) leaderElection() {
-	DPrintf("[%d]: leader election\n", rf.me)
+
+func (rf *Raft) apply() {
+	rf.applyCond.Broadcast()
+	DPrintf("[%v] rf.applyCond.Broadcast()", rf.me)
+}
+
+func (rf *Raft) applier() {
 	rf.mu.Lock()
-	rf.currentTerm++
-	rf.state = Candidate
-	rf.votedFor = rf.me
-	rf.electionTimeoutMs = time.Duration(150 + rand.Intn(150)) * time.Millisecond
-	term := rf.currentTerm
-	voteCounter := 1
-	completed := false
-	DPrintf("[%d]: 增加任期编号%d\n", rf.me, term)
-	rf.mu.Unlock()
+	defer rf.mu.Unlock()
 
-	for serverId, _ := range rf.peers {
-		if serverId == rf.me {
-			continue
-		}
-		go func(serverId int) {
-			DPrintf("[%d]: send vote request to %d\n", rf.me, serverId)
+	rf.lastApplied = 0
 
-			args := RequestVoteArgs{
-				Term:        term,
-				CandidateID: rf.me,
+	for !rf.killed() {
+		DPrintf("[%v] applier : lastApplied %v, commit index %v", rf.me, rf.lastApplied, rf.commitIndex)
+		if rf.lastApplied < rf.commitIndex {
+			rf.lastApplied++
+			applyMsg := ApplyMsg{
+				CommandValid:  true,
+				Command:       rf.log[rf.lastApplied].Command,
+				CommandIndex:  rf.lastApplied,
 			}
-			reply := RequestVoteReply{}
-			ok := rf.sendRequestVote(serverId, &args, &reply)
-			if !ok {
-				return
-			}
+			rf.mu.Unlock()
+			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			defer rf.mu.Unlock()
-			DPrintf("[%d]: receive vote from %d, 当前term %d 对方term %d\n", rf.me, serverId, term, reply.Term)
-			if reply.Term > term {
-				DPrintf("[%d]: %d 在新的term，更新term，结束\n", rf.me, serverId)
-				rf.setNewTerm(reply.Term)
-				return
-			}
-			if reply.Term < term {
-				DPrintf("[%d]: %d 的term %d 已经失效，结束\n", rf.me, serverId, reply.Term)
-				return
-			}
-			if !reply.VoteGranted {
-				DPrintf("[%d]: %d 没有投给me，结束\n", rf.me, serverId)
-				return
-			}
-			DPrintf("[%d]: from %d term一致，且投给%d\n", rf.me, serverId, rf.me)
-
-			voteCounter++
-
-			if completed || voteCounter <= len(rf.peers)/2 {
-				DPrintf("[%d] 当前票数 %d 结束\n", rf.me, voteCounter)
-				return
-			}
-			DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
-			completed = true
-			if term != rf.currentTerm || rf.state != Candidate {
-				DPrintf("[%d]: term 过期，或者已经不是candidate，结束\n", rf.me)
-				return
-			}
-			DPrintf("[%d]: 成为leader\n", rf.me)
-			rf.state = Leader
-			DPrintf("[%d]: state %v\n", rf.me, rf.state)
-		}(serverId)
+			DPrintf("[%v] applier提交成功 : applymsg %v \n, lastApplied %v, commitIndex %v,\n rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
+			DPrintf("[%v] %#v", rf.me, rf)
+		} else {
+			rf.applyCond.Wait()
+			DPrintf("[%v] rf.applyCond.Wait()", rf.me)
+		}
 	}
 }

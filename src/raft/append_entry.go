@@ -119,6 +119,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term < rf.currentTerm {
 		return
 	}
+	// candidate rule
+	if rf.state == Candidate {
+		rf.state = Follower
+	}
 
 	// append entries rpc 2
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {

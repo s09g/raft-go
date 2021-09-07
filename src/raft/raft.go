@@ -185,6 +185,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Index:   index,
 		Term:    term,
 	}
+	DPrintf("[%v] 收到log %v", rf.me, log)
 	rf.appendLog(&log)
 	rf.persist()
 	rf.appendEntries(false)
@@ -233,28 +234,6 @@ func (rf *Raft) ticker() {
 	}
 }
 
-func (rf *Raft) leaderCommitRule() {
-	// leader rule 4
-	if rf.state != Leader {
-		return
-	}
-	for n := rf.commitIndex + 1; n <= rf.lastLog().Index; n++ {
-		if rf.log[n].Term != rf.currentTerm {
-			continue
-		}
-		counter := 1
-		for serverId := 0; serverId < len(rf.peers); serverId++ {
-			if serverId != rf.me && rf.matchIndex[serverId] >= n {
-				counter++
-			}
-			if counter > len(rf.peers) / 2 {
-				rf.commitIndex = n
-				break
-			}
-		}
-	}
-	rf.apply()
-}
 
 //
 // the service or tester wants to create a Raft server. the ports
@@ -304,6 +283,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) apply() {
 	rf.applyCond.Broadcast()
+	DPrintf("[%v] rf.applyCond.Broadcast()", rf.me)
 }
 
 func (rf *Raft) applier() {
@@ -313,6 +293,7 @@ func (rf *Raft) applier() {
 	rf.lastApplied = 0
 
 	for !rf.killed() {
+		DPrintf("[%v] applier : lastApplied %v, commit index %v", rf.me, rf.lastApplied, rf.commitIndex)
 		if rf.lastApplied < rf.commitIndex {
 			rf.lastApplied++
 			applyMsg := ApplyMsg{
@@ -323,8 +304,11 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
+			DPrintf("[%v] applier提交成功 : applymsg %v \n, lastApplied %v, commitIndex %v,\n rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
+			DPrintf("[%v] %#v", rf.me, rf)
 		} else {
 			rf.applyCond.Wait()
+			DPrintf("[%v] rf.applyCond.Wait()", rf.me)
 		}
 	}
 }

@@ -145,13 +145,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
+		rf.apply()
 		DPrintf("[%d]: follower 确认commit log %v\n", rf.me, rf.commitIndex)
 	}
 	reply.Success = true
 	rf.lastHeartBeat = time.Now()
 	DPrintf("[%d]: 确认添加 log %v\n", rf.me, args.Entries)
-	DPrintf("[%v] %#v", rf.me, rf)
-}
+	DPrintf("[%v] %#v, commit %v, applied %v", rf.me, rf.log, rf.commitIndex, rf.lastApplied)}
 
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {

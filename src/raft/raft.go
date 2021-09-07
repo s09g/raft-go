@@ -166,6 +166,8 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	DPrintf("[%v] Start 收到 command %v", rf.me, command)
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.state != Leader {
@@ -179,7 +181,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Index:   index,
 		Term:    term,
 	}
-	DPrintf("[%v] 收到log %v", rf.me, log)
+	DPrintf("[%v] Start 收到 log %v", rf.me, log)
 	rf.appendLog(&log)
 	rf.persist()
 	rf.appendEntries(false)
@@ -298,7 +300,7 @@ func (rf *Raft) applier() {
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
 			DPrintf("[%v] applier提交成功 : applymsg %v \n, lastApplied %v, commitIndex %v,\n rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
-			DPrintf("[%v] %#v", rf.me, rf)
+			DPrintf("[%v] %#v, commit %v, applied %v", rf.me, rf.log, rf.commitIndex, rf.lastApplied)
 		} else {
 			rf.applyCond.Wait()
 			DPrintf("[%v] rf.applyCond.Wait()", rf.me)

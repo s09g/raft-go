@@ -119,6 +119,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term < rf.currentTerm {
 		return
 	}
+	// candidate rule
+	if rf.state == Candidate {
+		rf.state = Follower
+	}
 
 	// append entries rpc 2
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
@@ -141,6 +145,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
+		rf.apply()
 		DPrintf("[%d]: follower 确认commit log %v\n", rf.me, rf.commitIndex)
 	}
 	reply.Success = true

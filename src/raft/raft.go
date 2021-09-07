@@ -18,7 +18,6 @@ package raft
 //
 
 import (
-	"math/rand"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
@@ -27,6 +26,7 @@ import (
 	//	"../labgob"
 	"../labrpc"
 )
+
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -72,14 +72,6 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	state         RaftState
-	appendEntryCh chan *Log
-	currentTerm   int
-	votedFor      int
-	log           Log
-
-	commitIndex int
-	lastApplied int
 
 	state RaftState
 	appendEntryCh chan *Log
@@ -121,6 +113,7 @@ func (rf *Raft) persist() {
 	// rf.persister.SaveRaftState(data)
 }
 
+
 //
 // restore previously persisted state.
 //
@@ -143,6 +136,7 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
+
 //
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
@@ -162,7 +156,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 
 }
-
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -225,6 +218,7 @@ func (rf *Raft) killed() bool {
 // heartsbeats recently.
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
+
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().

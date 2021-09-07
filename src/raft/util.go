@@ -1,9 +1,6 @@
 package raft
 
-import (
-	"log"
-	"time"
-)
+import "log"
 
 // Debugging
 const Debug = false

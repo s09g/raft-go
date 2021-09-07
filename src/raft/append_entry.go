@@ -141,6 +141,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
+		rf.apply()
 		DPrintf("[%d]: follower 确认commit log %v\n", rf.me, rf.commitIndex)
 	}
 	reply.Success = true

@@ -120,6 +120,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	// candidate rule 3
+	if rf.state == Candidate {
+		rf.state = Follower
+	}
 	// append entries rpc 2
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		return

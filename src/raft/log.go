@@ -13,4 +13,3 @@ func (rf *Raft) lastLog() *Log {
 func (rf *Raft) appendLog(log *Log) {
 	rf.log = append(rf.log, *log)
 }
-

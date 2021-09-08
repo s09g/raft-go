@@ -51,7 +51,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[%v]: %v reply append : reply %#v", rf.me, serverId, reply)
+	DPrintf("[%v]: %v reply append: %#v", rf.me, serverId, reply)
 	if reply.Term > rf.CurrentTerm {
 		rf.setNewTerm(reply.Term)
 		return
@@ -118,7 +118,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term < rf.CurrentTerm {
 		return
 	}
-	DPrintf("[%v]: reset heart beat", rf.me)
+	//DPrintf("[%v]: reset heart beat", rf.me)
 	rf.lastHeartBeat = time.Now()
 
 	// candidate rule 3
@@ -134,6 +134,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// append entries rpc 3
 	if args.PrevLogIndex + 1 < len(rf.Logs) && rf.Logs[args.PrevLogIndex+1].Term != args.Term {
 		rf.Logs = rf.Logs[: args.PrevLogIndex + 1]
+		rf.persist()
 	}
 	//DPrintf("[%v]: append entries rpc 3, log %v", rf.me, rf.log)
 
@@ -141,6 +142,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	for i, entry := range args.Entries {
 		if entry.Index >= len(rf.Logs) || rf.Logs[entry.Index].Term != entry.Term {
 			rf.Logs = append(rf.Logs, args.Entries[i:]...)
+			rf.persist()
 			break
 		}
 	}

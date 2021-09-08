@@ -98,6 +98,7 @@ type Raft struct {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
+	DPrintf("[%v]: persist term %v votedfor %v logs %v", rf.me, rf.CurrentTerm, rf.VotedFor, rf.Logs)
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.CurrentTerm)
@@ -118,17 +119,18 @@ func (rf *Raft) readPersist(data []byte) {
 
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
-	var currentTerm int
+	var CurrentTerm int
 	var votedFor int
 	var raftLog []Log
 
-	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&raftLog) != nil {
-	  log.Fatal("failed to read persist\n")
+	if d.Decode(&CurrentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&raftLog) != nil {
+		log.Fatal("failed to read persist\n")
 	} else {
-	  rf.CurrentTerm = currentTerm
-	  rf.VotedFor = votedFor
-	  rf.Logs = raftLog
+		rf.CurrentTerm = CurrentTerm
+		rf.VotedFor = votedFor
+		rf.Logs = raftLog
 	}
+	DPrintf("[%v]: readPersist term %v votedfor %v logs %v", rf.me, rf.CurrentTerm, rf.VotedFor, rf.Logs)
 }
 
 
@@ -163,7 +165,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Term:    term,
 	}
 	DPrintf("[%v]: Start 收到 Logs %v", rf.me, log)
-	rf.appendLog(&log)
+	rf.Logs = append(rf.Logs, log)
 	rf.persist()
 	rf.appendEntries(false)
 
@@ -232,13 +234,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
-	rf.setNewTerm(0)
+	rf.state = Follower
+	rf.CurrentTerm = 0
+	rf.VotedFor = -1
 	rf.heartBeat = 100 * time.Millisecond
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 
 	rf.Logs = make([]Log, 0)
-	rf.appendLog(&Log{})
+	rf.Logs = append(rf.Logs, Log{})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.nextIndex = make([]int, len(rf.peers))
@@ -279,7 +283,7 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v]: apply %v, lastApplied %v, commitIndex %v, rf.Logs %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.Logs)
+			DPrintf("[%v]: apply %#v, lastApplied %v, commitIndex %v, rf.Logs %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.Logs)
 		} else {
 			rf.applyCond.Wait()
 			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)

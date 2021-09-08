@@ -55,6 +55,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if (rf.VotedFor == -1 || rf.VotedFor == args.CandidateId) && upToDate {
 		reply.VoteGranted = true
 		rf.VotedFor = args.CandidateId
+		rf.persist()
 		rf.resetElectionTimeout()
 	} else {
 		reply.VoteGranted = false

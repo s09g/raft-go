@@ -27,16 +27,16 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 		// rules for leader 3
 		if lastLog.Index > rf.nextIndex[peer] || heartbeat {
 			nextIndex := rf.nextIndex[peer]
-			prevLog := rf.log[nextIndex - 1]
+			prevLog := rf.Logs[nextIndex - 1]
 			args := AppendEntriesArgs{
-				Term:         rf.currentTerm,
+				Term:         rf.CurrentTerm,
 				LeaderId:     rf.me,
 				PrevLogIndex: prevLog.Index,
 				PrevLogTerm:  prevLog.Term,
 				Entries:      make([]Log, lastLog.Index - nextIndex + 1),
 				LeaderCommit: rf.commitIndex,
 			}
-			copy(args.Entries, rf.log[nextIndex:])
+			copy(args.Entries, rf.Logs[nextIndex:])
 			go rf.leaderSendEntries(peer, &args)
 		}
 	}
@@ -52,11 +52,11 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	DPrintf("[%v]: %v reply append : reply %#v", rf.me, serverId, reply)
-	if reply.Term > rf.currentTerm {
+	if reply.Term > rf.CurrentTerm {
 		rf.setNewTerm(reply.Term)
 		return
 	}
-	if reply.Term == rf.currentTerm {
+	if reply.Term == rf.CurrentTerm {
 		// rules for leader 3.1
 		if reply.Success {
 			match := args.PrevLogIndex + len(args.Entries)
@@ -80,7 +80,7 @@ func (rf *Raft) leaderCommitRule() {
 	}
 	N := rf.commitIndex
 	for n := rf.commitIndex + 1; n <= rf.lastLog().Index; n++ {
-		if rf.log[n].Term != rf.currentTerm {
+		if rf.Logs[n].Term != rf.CurrentTerm {
 			continue
 		}
 		counter := 1
@@ -105,17 +105,17 @@ func (rf *Raft) leaderCommitRule() {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[%d]: follower 收到 AppendEntries %v, prevIndex %v, prevTerm %v, 当前log %v\n", rf.me, args.Entries, args.PrevLogIndex, args.PrevLogTerm, rf.log)
+	DPrintf("[%d]: follower 收到 AppendEntries %v, prevIndex %v, prevTerm %v, 当前log %v\n", rf.me, args.Entries, args.PrevLogIndex, args.PrevLogTerm, rf.Logs)
 	// rules for servers
 	// all servers 2
 	reply.Success = false
-	reply.Term = rf.currentTerm
-	if args.Term > rf.currentTerm {
+	reply.Term = rf.CurrentTerm
+	if args.Term > rf.CurrentTerm {
 		rf.setNewTerm(args.Term)
 	}
 
 	// append entries rpc 1
-	if args.Term < rf.currentTerm {
+	if args.Term < rf.CurrentTerm {
 		return
 	}
 	DPrintf("[%v]: reset heart beat", rf.me)
@@ -126,21 +126,21 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.state = Follower
 	}
 	// append entries rpc 2
-	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if len(rf.Logs) <= args.PrevLogIndex || rf.Logs[args.PrevLogIndex].Term != args.PrevLogTerm {
 		return
 	}
 	//DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)
 
 	// append entries rpc 3
-	if args.PrevLogIndex + 1 < len(rf.log) && rf.log[args.PrevLogIndex+1].Term != args.Term {
-		rf.log = rf.log[: args.PrevLogIndex + 1]
+	if args.PrevLogIndex + 1 < len(rf.Logs) && rf.Logs[args.PrevLogIndex+1].Term != args.Term {
+		rf.Logs = rf.Logs[: args.PrevLogIndex + 1]
 	}
 	//DPrintf("[%v]: append entries rpc 3, log %v", rf.me, rf.log)
 
 	// append entries rpc 4
 	for i, entry := range args.Entries {
-		if entry.Index >= len(rf.log) || rf.log[entry.Index].Term != entry.Term {
-			rf.log = append(rf.log, args.Entries[i:]...)
+		if entry.Index >= len(rf.Logs) || rf.Logs[entry.Index].Term != entry.Term {
+			rf.Logs = append(rf.Logs, args.Entries[i:]...)
 			break
 		}
 	}
@@ -152,7 +152,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.apply()
 	}
 	reply.Success = true
-	DPrintf("[%v]: follower commit %v, applied %v, 当前log %v", rf.me, rf.commitIndex, rf.lastApplied, rf.log)
+	DPrintf("[%v]: follower commit %v, applied %v, 当前log %v", rf.me, rf.commitIndex, rf.lastApplied, rf.Logs)
 }
 
 

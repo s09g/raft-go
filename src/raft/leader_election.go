@@ -11,7 +11,7 @@ import (
 func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	term := rf.currentTerm
+	term := rf.CurrentTerm
 	isleader := rf.state == Leader
 	return term, isleader
 }
@@ -21,26 +21,26 @@ func (rf *Raft) resetElectionTimeout() {
 }
 
 func (rf *Raft) setNewTerm(term int) bool {
-	if term > rf.currentTerm || rf.currentTerm == 0 {
+	if term > rf.CurrentTerm || rf.CurrentTerm == 0 {
 		rf.state = Follower
-		rf.currentTerm = term
-		rf.votedFor = -1
-		DPrintf("[%d]: set term %v\n", rf.me, rf.currentTerm)
+		rf.CurrentTerm = term
+		rf.VotedFor = -1
+		DPrintf("[%d]: set term %v\n", rf.me, rf.CurrentTerm)
 		return true
 	}
 	return false
 }
 
 func (rf *Raft) leaderElection() {
-	rf.currentTerm++
+	rf.CurrentTerm++
 	rf.state = Candidate
-	rf.votedFor = rf.me
+	rf.VotedFor = rf.me
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
-	term := rf.currentTerm
+	term := rf.CurrentTerm
 	voteCounter := 1
 	lastLog := rf.lastLog()
-	DPrintf("[%v]: start leader election, term %d\n", rf.me, rf.currentTerm)
+	DPrintf("[%v]: start leader election, term %d\n", rf.me, rf.CurrentTerm)
 	args := RequestVoteArgs{
 		Term:         term,
 		CandidateId:  rf.me,

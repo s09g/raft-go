@@ -36,13 +36,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// rules for servers
 	// all servers 2
-	if args.Term > rf.currentTerm {
+	if args.Term > rf.CurrentTerm {
 		rf.setNewTerm(args.Term)
 	}
 
 	// request vote rpc receiver 1
-	if args.Term < rf.currentTerm {
-		reply.Term = rf.currentTerm
+	if args.Term < rf.CurrentTerm {
+		reply.Term = rf.CurrentTerm
 		reply.VoteGranted = false
 		return
 	}
@@ -52,14 +52,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	upToDate := args.LastLogTerm > myLastLog.Term ||
 		(args.LastLogTerm == myLastLog.Term && args.LastLogIndex >= myLastLog.Index)
-	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
+	if (rf.VotedFor == -1 || rf.VotedFor == args.CandidateId) && upToDate {
 		reply.VoteGranted = true
-		rf.votedFor = args.CandidateId
+		rf.VotedFor = args.CandidateId
 		rf.resetElectionTimeout()
 	} else {
 		reply.VoteGranted = false
 	}
-	reply.Term = rf.currentTerm
+	reply.Term = rf.CurrentTerm
 }
 
 //
@@ -124,7 +124,7 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 	*voteCounter++
 
 	if *voteCounter > len(rf.peers) / 2 &&
-		rf.currentTerm == args.Term &&
+		rf.CurrentTerm == args.Term &&
 		rf.state == Candidate {
 		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 		becameLeader.Do(func() {

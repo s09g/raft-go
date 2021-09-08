@@ -75,9 +75,9 @@ type Raft struct {
 	electionTimeout time.Duration
 
 	// Persistent state on all servers:
-	currentTerm int
-	votedFor int
-	log []Log
+	CurrentTerm int
+	VotedFor    int
+	Logs        []Log
 
 	// Volatile state on all servers:
 	commitIndex int
@@ -100,9 +100,9 @@ type Raft struct {
 func (rf *Raft) persist() {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
-	e.Encode(rf.currentTerm)
-	e.Encode(rf.votedFor)
-	e.Encode(rf.log)
+	e.Encode(rf.CurrentTerm)
+	e.Encode(rf.VotedFor)
+	e.Encode(rf.Logs)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -125,9 +125,9 @@ func (rf *Raft) readPersist(data []byte) {
 	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&raftLog) != nil {
 	  log.Fatal("failed to read persist\n")
 	} else {
-	  rf.currentTerm = currentTerm
-	  rf.votedFor = votedFor
-	  rf.log = raftLog
+	  rf.CurrentTerm = currentTerm
+	  rf.VotedFor = votedFor
+	  rf.Logs = raftLog
 	}
 }
 
@@ -152,17 +152,17 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.state != Leader {
-		return -1, rf.currentTerm, false
+		return -1, rf.CurrentTerm, false
 	}
 	index := rf.lastLog().Index + 1
-	term := rf.currentTerm
+	term := rf.CurrentTerm
 
 	log := Log{
 		Command: command,
 		Index:   index,
 		Term:    term,
 	}
-	DPrintf("[%v]: Start 收到 log %v", rf.me, log)
+	DPrintf("[%v]: Start 收到 Logs %v", rf.me, log)
 	rf.appendLog(&log)
 	rf.persist()
 	rf.appendEntries(false)
@@ -237,7 +237,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 
-	rf.log = make([]Log, 0)
+	rf.Logs = make([]Log, 0)
 	rf.appendLog(&Log{})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
@@ -273,13 +273,13 @@ func (rf *Raft) applier() {
 			rf.lastApplied++
 			applyMsg := ApplyMsg{
 				CommandValid:  true,
-				Command:       rf.log[rf.lastApplied].Command,
+				Command:       rf.Logs[rf.lastApplied].Command,
 				CommandIndex:  rf.lastApplied,
 			}
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v]: apply %v, lastApplied %v, commitIndex %v, rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
+			DPrintf("[%v]: apply %v, lastApplied %v, commitIndex %v, rf.Logs %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.Logs)
 		} else {
 			rf.applyCond.Wait()
 			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)

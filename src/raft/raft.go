@@ -54,6 +54,16 @@ const (
 	Leader  = "Leader"
 )
 
+type Log struct {
+	Command interface{}
+	Term    int
+	Index   int
+}
+
+func (rf *Raft) lastLog() *Log {
+	return &rf.Logs[len(rf.Logs) - 1]
+}
+
 //
 // A Go object implementing a single Raft peer.
 //

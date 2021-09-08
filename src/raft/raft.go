@@ -252,7 +252,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
 	rf.setNewTerm(0)
-	rf.heartBeat = 30 * time.Millisecond
+	rf.heartBeat = 100 * time.Millisecond
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 

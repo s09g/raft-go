@@ -129,13 +129,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		return
 	}
-	DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)
+	//DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)
 
 	// append entries rpc 3
 	if args.PrevLogIndex + 1 < len(rf.log) && rf.log[args.PrevLogIndex+1].Term != args.Term {
 		rf.log = rf.log[: args.PrevLogIndex + 1]
 	}
-	DPrintf("[%v]: append entries rpc 3, log %v", rf.me, rf.log)
+	//DPrintf("[%v]: append entries rpc 3, log %v", rf.me, rf.log)
 
 	// append entries rpc 4
 	for i, entry := range args.Entries {
@@ -144,7 +144,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			break
 		}
 	}
-	DPrintf("[%v]: append entries rpc 4, log %v", rf.me, rf.log)
+	//DPrintf("[%v]: append entries rpc 4, log %v", rf.me, rf.log)
 
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {

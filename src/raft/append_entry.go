@@ -43,7 +43,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 }
 
 func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
-	DPrintf("[%v] 发送entry to %v : args index %v", rf.me, serverId, args.PrevLogIndex + len(args.Entries))
+	DPrintf("[%v]: term %v 发送entry to %v : args prev %v, lastLog %v", rf.me, args.Term, serverId, args.PrevLogIndex, args.PrevLogIndex + len(args.Entries))
 	var reply AppendEntriesReply
 	ok := rf.sendAppendEntries(serverId, args, &reply)
 	if !ok {
@@ -51,7 +51,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[%v] %v reply append : reply %v", rf.me, serverId, reply)
+	DPrintf("[%v]: %v reply append : reply %#v", rf.me, serverId, reply)
 	if reply.Term > rf.currentTerm {
 		rf.setNewTerm(reply.Term)
 		return
@@ -105,34 +105,37 @@ func (rf *Raft) leaderCommitRule() {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[%d]: 收到 entry %v\n", rf.me, args)
+	DPrintf("[%d]: follower 收到 AppendEntries %v, prevIndex %v, prevTerm %v, 当前log %v\n", rf.me, args.Entries, args.PrevLogIndex, args.PrevLogTerm, rf.log)
 	// rules for servers
 	// all servers 2
 	reply.Success = false
 	reply.Term = rf.currentTerm
 	if args.Term > rf.currentTerm {
 		rf.setNewTerm(args.Term)
-		return
 	}
 
 	// append entries rpc 1
 	if args.Term < rf.currentTerm {
 		return
 	}
-	// candidate rule
+	DPrintf("[%v]: reset heart beat", rf.me)
+	rf.lastHeartBeat = time.Now()
+
+	// candidate rule 3
 	if rf.state == Candidate {
 		rf.state = Follower
 	}
-
 	// append entries rpc 2
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		return
 	}
+	//DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)
 
 	// append entries rpc 3
-	if args.PrevLogIndex + 1 > len(rf.log) && rf.log[args.PrevLogIndex+1].Term != args.Term {
+	if args.PrevLogIndex + 1 < len(rf.log) && rf.log[args.PrevLogIndex+1].Term != args.Term {
 		rf.log = rf.log[: args.PrevLogIndex + 1]
 	}
+	//DPrintf("[%v]: append entries rpc 3, log %v", rf.me, rf.log)
 
 	// append entries rpc 4
 	for i, entry := range args.Entries {
@@ -141,17 +144,15 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			break
 		}
 	}
+	//DPrintf("[%v]: append entries rpc 4, log %v", rf.me, rf.log)
 
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
 		rf.apply()
-		DPrintf("[%d]: follower 确认commit log %v\n", rf.me, rf.commitIndex)
 	}
 	reply.Success = true
-	rf.lastHeartBeat = time.Now()
-	DPrintf("[%d]: 确认添加 log %v\n", rf.me, args.Entries)
-	DPrintf("[%v] %#v", rf.me, rf)
+	DPrintf("[%v]: follower commit %v, applied %v, 当前log %v", rf.me, rf.commitIndex, rf.lastApplied, rf.log)
 }
 
 

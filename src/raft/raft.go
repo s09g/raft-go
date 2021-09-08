@@ -172,6 +172,8 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	DPrintf("[%v]: Start 收到 command %v", rf.me, command)
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.state != Leader {
@@ -185,7 +187,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Index:   index,
 		Term:    term,
 	}
-	DPrintf("[%v] 收到log %v", rf.me, log)
+	DPrintf("[%v]: Start 收到 log %v", rf.me, log)
 	rf.appendLog(&log)
 	rf.persist()
 	rf.appendEntries(false)
@@ -256,7 +258,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
 	rf.setNewTerm(0)
-	rf.heartBeat = 30 * time.Millisecond
+	rf.heartBeat = 100 * time.Millisecond
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 
@@ -283,18 +285,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) apply() {
 	rf.applyCond.Broadcast()
-	DPrintf("[%v] rf.applyCond.Broadcast()", rf.me)
+	DPrintf("[%v]: rf.applyCond.Broadcast()", rf.me)
 }
 
 func (rf *Raft) applier() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	rf.lastApplied = 0
-
 	for !rf.killed() {
-		DPrintf("[%v] applier : lastApplied %v, commit index %v", rf.me, rf.lastApplied, rf.commitIndex)
-		if rf.lastApplied < rf.commitIndex {
+		// all server rule 1
+		if rf.commitIndex > rf.lastApplied  {
 			rf.lastApplied++
 			applyMsg := ApplyMsg{
 				CommandValid:  true,
@@ -304,11 +304,10 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v] applier提交成功 : applymsg %v \n, lastApplied %v, commitIndex %v,\n rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
-			DPrintf("[%v] %#v", rf.me, rf)
+			DPrintf("[%v]: apply %v, lastApplied %v, commitIndex %v, rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
 		} else {
 			rf.applyCond.Wait()
-			DPrintf("[%v] rf.applyCond.Wait()", rf.me)
+			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)
 		}
 	}
 }

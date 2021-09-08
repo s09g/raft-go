@@ -25,13 +25,13 @@ func (rf *Raft) setNewTerm(term int) bool {
 		rf.state = Follower
 		rf.currentTerm = term
 		rf.votedFor = -1
+		DPrintf("[%d]: set term %v\n", rf.me, rf.currentTerm)
 		return true
 	}
 	return false
 }
 
 func (rf *Raft) leaderElection() {
-	DPrintf("[%v] start leader election\n", rf.me)
 	rf.currentTerm++
 	rf.state = Candidate
 	rf.votedFor = rf.me
@@ -40,7 +40,7 @@ func (rf *Raft) leaderElection() {
 	term := rf.currentTerm
 	voteCounter := 1
 	lastLog := rf.lastLog()
-
+	DPrintf("[%v]: start leader election, term %d\n", rf.me, rf.currentTerm)
 	args := RequestVoteArgs{
 		Term:         term,
 		CandidateId:  rf.me,

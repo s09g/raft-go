@@ -166,7 +166,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	DPrintf("[%v] Start 收到 command %v", rf.me, command)
+	DPrintf("[%v]: Start 收到 command %v", rf.me, command)
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -181,7 +181,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Index:   index,
 		Term:    term,
 	}
-	DPrintf("[%v] Start 收到 log %v", rf.me, log)
+	DPrintf("[%v]: Start 收到 log %v", rf.me, log)
 	rf.appendLog(&log)
 	rf.persist()
 	rf.appendEntries(false)
@@ -279,7 +279,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) apply() {
 	rf.applyCond.Broadcast()
-	DPrintf("[%v] rf.applyCond.Broadcast()", rf.me)
+	DPrintf("[%v]: rf.applyCond.Broadcast()", rf.me)
 }
 
 func (rf *Raft) applier() {
@@ -287,7 +287,6 @@ func (rf *Raft) applier() {
 	defer rf.mu.Unlock()
 
 	for !rf.killed() {
-		DPrintf("[%v] applier : lastApplied %v, commit index %v", rf.me, rf.lastApplied, rf.commitIndex)
 		// all server rule 1
 		if rf.commitIndex > rf.lastApplied  {
 			rf.lastApplied++
@@ -299,11 +298,10 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v] applier提交成功 : applymsg %v \n, lastApplied %v, commitIndex %v,\n rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
-			DPrintf("[%v] %#v, commit %v, applied %v", rf.me, rf.log, rf.commitIndex, rf.lastApplied)
+			DPrintf("[%v]: apply %v, lastApplied %v, commitIndex %v, rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
 		} else {
 			rf.applyCond.Wait()
-			DPrintf("[%v] rf.applyCond.Wait()", rf.me)
+			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)
 		}
 	}
 }

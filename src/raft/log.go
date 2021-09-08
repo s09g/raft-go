@@ -2,8 +2,8 @@ package raft
 
 type Log struct {
 	Command interface{}
-	Index   int
 	Term    int
+	Index   int
 }
 
 func (rf *Raft) lastLog() *Log {

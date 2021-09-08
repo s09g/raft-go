@@ -122,9 +122,7 @@ func (rf *Raft) readPersist(data []byte) {
 	var votedFor int
 	var raftLog []Log
 
-	if d.Decode(&currentTerm) != nil ||
-	   d.Decode(&votedFor) != nil ||
-		d.Decode(&raftLog) != nil {
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&raftLog) != nil {
 	  log.Fatal("failed to read persist\n")
 	} else {
 	  rf.currentTerm = currentTerm

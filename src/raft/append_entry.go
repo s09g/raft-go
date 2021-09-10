@@ -1,7 +1,5 @@
 package raft
 
-import "time"
-
 type AppendEntriesArgs struct {
 	Term int
 	LeaderId int
@@ -24,13 +22,15 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 	lastLog := rf.lastLog()
 	for peer, _ := range rf.peers {
 		if peer == rf.me {
-			rf.lastHeartBeat = time.Now()
-			rf.resetElectionTimeout()
+			rf.resetElectionTimer()
 			continue
 		}
 		// rules for leader 3
 		if lastLog.Index > rf.nextIndex[peer] || heartbeat {
 			nextIndex := rf.nextIndex[peer]
+			if nextIndex <= 0 {
+				nextIndex = 1
+			}
 			if rf.lastLog().Index + 1 < nextIndex  {
 				nextIndex = rf.lastLog().Index
 			}
@@ -69,21 +69,22 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			next := match + 1
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
-		} else
-		if reply.Conflict {
-			lastLogInXTerm := rf.findLastLogInTerm(reply.XTerm)
-			DPrintf("[%v]: Conflict from %v %#v, lastLogInXTerm %v", rf.me, serverId, reply, lastLogInXTerm)
-			if lastLogInXTerm > 0 {
-				rf.nextIndex[serverId] = lastLogInXTerm
-			} else {
-				rf.nextIndex[serverId] = reply.XIndex
-			}
-			if reply.XLen < rf.nextIndex[serverId] {
+		} else if reply.Conflict {
+			DPrintf("[%v]: Conflict from %v %#v", rf.me, serverId, reply)
+			if reply.XTerm == -1 {
 				rf.nextIndex[serverId] = reply.XLen
+			} else {
+				lastLogInXTerm := rf.findLastLogInTerm(reply.XTerm)
+				DPrintf("[%v]: lastLogInXTerm %v", rf.me, lastLogInXTerm)
+				if lastLogInXTerm > 0 {
+					rf.nextIndex[serverId] = lastLogInXTerm
+				} else {
+					rf.nextIndex[serverId] = reply.XIndex
+				}
 			}
+
 			DPrintf("[%v]: leader nextIndex[%v] %v log %v, ", rf.me, serverId, rf.nextIndex[serverId], rf.log)
-		} else
-		if rf.nextIndex[serverId] > 1 {
+		} else if rf.nextIndex[serverId] > 1 {
 			rf.nextIndex[serverId]--
 		}
 		rf.leaderCommitRule()
@@ -148,18 +149,25 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 	//DPrintf("[%v]: reset heart beat", rf.me)
-	rf.lastHeartBeat = time.Now()
+	rf.resetElectionTimer()
 
 	// candidate rule 3
 	if rf.state == Candidate {
 		rf.state = Follower
 	}
 	// append entries rpc 2
-	if rf.lastLog().Index < args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if rf.lastLog().Index < args.PrevLogIndex {
 		reply.Conflict = true
-		conflictIndex := min(args.PrevLogIndex, rf.lastLog().Index)
-		xTerm := rf.log[conflictIndex].Term
-		for xIndex := conflictIndex; xIndex > 0 ; xIndex-- {
+		reply.XTerm = -1
+		reply.XIndex = -1
+		reply.XLen = len(rf.log)
+		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
+		return
+	}
+	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.Conflict = true
+		xTerm := rf.log[args.PrevLogIndex].Term
+		for xIndex := args.PrevLogIndex; xIndex > 0 ; xIndex-- {
 			if rf.log[xIndex - 1].Term != xTerm {
 				reply.XIndex = xIndex
 				break
@@ -167,7 +175,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		reply.XTerm = xTerm
 		reply.XLen = len(rf.log)
-		DPrintf("[%v]: Conflict log %v", rf.me, rf.log)
+		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
 	//DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)

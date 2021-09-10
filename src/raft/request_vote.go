@@ -56,7 +56,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 		rf.persist()
-		rf.resetElectionTimeout()
+		rf.resetElectionTimer()
 	} else {
 		reply.VoteGranted = false
 	}

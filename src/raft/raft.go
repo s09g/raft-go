@@ -36,14 +36,20 @@ import (
 // CommandValid to true to indicate that the ApplyMsg contains a newly
 // committed log entry.
 //
-// in Lab 3 you'll want to send other kinds of messages (e.g.,
-// snapshots) on the applyCh; at that point you can add fields to
-// ApplyMsg, but set CommandValid to false for these other uses.
+// in part 2D you'll want to send other kinds of messages (e.g.,
+// snapshots) on the applyCh, but set CommandValid to false for these
+// other uses.
 //
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+
+	// For 2D:
+	SnapshotValid bool
+	Snapshot      []byte
+	SnapshotTerm  int
+	SnapshotIndex int
 }
 
 type RaftState string
@@ -78,11 +84,10 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
-	state RaftState
+	state         RaftState
 	appendEntryCh chan *Log
-	heartBeat time.Duration
-	lastHeartBeat time.Time
-	electionTimeout time.Duration
+	heartBeat     time.Duration
+	electionTime  time.Time
 
 	// Persistent state on all servers:
 	currentTerm int
@@ -141,6 +146,26 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 }
 
+
+//
+// A service wants to switch to snapshot.  Only do so if Raft hasn't
+// have more recent info since it communicate the snapshot on applyCh.
+//
+func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
+
+	// Your code here (2D).
+
+	return true
+}
+
+// the service says it has created a snapshot that has
+// all info up to and including index. this means the
+// service no longer needs the log through (and including)
+// that index. Raft should now trim its log as much as possible.
+func (rf *Raft) Snapshot(index int, snapshot []byte) {
+	// Your code here (2D).
+
+}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -212,7 +237,7 @@ func (rf *Raft) ticker() {
 		if rf.state == Leader {
 			rf.appendEntries(true)
 		}
-		if time.Since(rf.lastHeartBeat) > rf.electionTimeout {
+		if time.Now().After(rf.electionTime) {
 			rf.leaderElection()
 		}
 		rf.mu.Unlock()
@@ -244,8 +269,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.heartBeat = 100 * time.Millisecond
-	rf.lastHeartBeat = time.Now()
-	rf.resetElectionTimeout()
+	rf.resetElectionTimer()
 
 	rf.log = make([]Log, 0)
 	rf.log = append(rf.log, Log{})

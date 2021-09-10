@@ -73,16 +73,20 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
 		} else if reply.Conflict {
-			lastLogInXTerm := rf.findLastLogInTerm(reply.XTerm)
-			DPrintf("[%v]: Conflict from %v %#v, lastLogInXTerm %v", rf.me, serverId, reply, lastLogInXTerm)
-			if lastLogInXTerm > 0 {
-				rf.nextIndex[serverId] = lastLogInXTerm
-			} else {
-				rf.nextIndex[serverId] = reply.XIndex
-			}
-			if reply.XLen < rf.nextIndex[serverId] {
+
+			if reply.XTerm == -1 {
 				rf.nextIndex[serverId] = reply.XLen
+			} else {
+				lastLogInXTerm := rf.findLastLogInTerm(reply.XTerm)
+				DPrintf("[%v]: Conflict from %v %#v, lastLogInXTerm %v", rf.me, serverId, reply, lastLogInXTerm)
+				if lastLogInXTerm > 0 {
+					rf.nextIndex[serverId] = lastLogInXTerm
+				} else {
+					rf.nextIndex[serverId] = reply.XIndex
+				}
 			}
+
+
 			DPrintf("[%v]: leader nextIndex[%v] %v log %v, ", rf.me, serverId, rf.nextIndex[serverId], rf.log)
 		} else if rf.nextIndex[serverId] > 1 {
 			rf.nextIndex[serverId]--
@@ -156,11 +160,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.state = Follower
 	}
 	// append entries rpc 2
-	if rf.lastLog().Index < args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if rf.lastLog().Index < args.PrevLogIndex {
 		reply.Conflict = true
-		conflictIndex := min(args.PrevLogIndex, rf.lastLog().Index)
-		xTerm := rf.log[conflictIndex].Term
-		for xIndex := conflictIndex; xIndex > 0 ; xIndex-- {
+		reply.XTerm = -1
+		reply.XIndex = -1
+		reply.XLen = len(rf.log)
+		return
+	}
+	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.Conflict = true
+		xTerm := rf.log[args.PrevLogIndex].Term
+		for xIndex := args.PrevLogIndex; xIndex > 0 ; xIndex-- {
 			if rf.log[xIndex - 1].Term != xTerm {
 				reply.XIndex = xIndex
 				break

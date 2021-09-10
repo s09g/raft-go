@@ -108,7 +108,6 @@ type Raft struct {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
-	DPrintf("[%v]: persist term %v votedfor %v logs %v", rf.me, rf.currentTerm, rf.votedFor, rf.log)
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
@@ -140,7 +139,6 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.votedFor = votedFor
 		rf.log = logs
 	}
-	DPrintf("[%v]: readPersist term %v votedfor %v logs %v", rf.me, rf.currentTerm, rf.votedFor, rf.log)
 }
 
 
@@ -159,8 +157,6 @@ func (rf *Raft) readPersist(data []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	DPrintf("[%v]: Start 收到 command %v", rf.me, command)
-
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.state != Leader {
@@ -283,7 +279,7 @@ func (rf *Raft) applier() {
 
 	for !rf.killed() {
 		// all server rule 1
-		if rf.commitIndex > rf.lastApplied  {
+		if rf.commitIndex > rf.lastApplied && rf.lastLog().Index > rf.lastApplied {
 			rf.lastApplied++
 			applyMsg := ApplyMsg{
 				CommandValid:  true,

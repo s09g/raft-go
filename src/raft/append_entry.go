@@ -73,19 +73,18 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
 		} else if reply.Conflict {
-
+			DPrintf("[%v]: Conflict from %v %#v", rf.me, serverId, reply)
 			if reply.XTerm == -1 {
 				rf.nextIndex[serverId] = reply.XLen
 			} else {
 				lastLogInXTerm := rf.findLastLogInTerm(reply.XTerm)
-				DPrintf("[%v]: Conflict from %v %#v, lastLogInXTerm %v", rf.me, serverId, reply, lastLogInXTerm)
+				DPrintf("[%v]: lastLogInXTerm %v", rf.me, lastLogInXTerm)
 				if lastLogInXTerm > 0 {
 					rf.nextIndex[serverId] = lastLogInXTerm
 				} else {
 					rf.nextIndex[serverId] = reply.XIndex
 				}
 			}
-
 
 			DPrintf("[%v]: leader nextIndex[%v] %v log %v, ", rf.me, serverId, rf.nextIndex[serverId], rf.log)
 		} else if rf.nextIndex[serverId] > 1 {
@@ -165,6 +164,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.XTerm = -1
 		reply.XIndex = -1
 		reply.XLen = len(rf.log)
+		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
 	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
@@ -178,7 +178,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		reply.XTerm = xTerm
 		reply.XLen = len(rf.log)
-		DPrintf("[%v]: Conflict log %v", rf.me, rf.log)
+		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
 	//DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)

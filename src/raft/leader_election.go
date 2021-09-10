@@ -16,8 +16,10 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isleader
 }
 
-func (rf *Raft) resetElectionTimeout() {
-	rf.electionTimeout = time.Duration(150 + rand.Intn(150)) * time.Millisecond
+func (rf *Raft) resetElectionTimer() {
+	t := time.Now()
+	electionTimeout := time.Duration(150 + rand.Intn(150)) * time.Millisecond
+	rf.electionTime = t.Add(electionTimeout)
 }
 
 func (rf *Raft) setNewTerm(term int) {
@@ -35,8 +37,7 @@ func (rf *Raft) leaderElection() {
 	rf.state = Candidate
 	rf.votedFor = rf.me
 	rf.persist()
-	rf.lastHeartBeat = time.Now()
-	rf.resetElectionTimeout()
+	rf.resetElectionTimer()
 	term := rf.currentTerm
 	voteCounter := 1
 	lastLog := rf.lastLog()

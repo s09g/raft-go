@@ -1,7 +1,5 @@
 package raft
 
-import "time"
-
 type AppendEntriesArgs struct {
 	Term int
 	LeaderId int
@@ -24,8 +22,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 	lastLog := rf.lastLog()
 	for peer, _ := range rf.peers {
 		if peer == rf.me {
-			rf.lastHeartBeat = time.Now()
-			rf.resetElectionTimeout()
+			rf.resetElectionTimer()
 			continue
 		}
 		// rules for leader 3
@@ -152,7 +149,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 	//DPrintf("[%v]: reset heart beat", rf.me)
-	rf.lastHeartBeat = time.Now()
+	rf.resetElectionTimer()
 
 	// candidate rule 3
 	if rf.state == Candidate {

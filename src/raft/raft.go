@@ -84,11 +84,10 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
-	state RaftState
+	state         RaftState
 	appendEntryCh chan *Log
-	heartBeat time.Duration
-	lastHeartBeat time.Time
-	electionTimeout time.Duration
+	heartBeat     time.Duration
+	electionTime  time.Time
 
 	// Persistent state on all servers:
 	currentTerm int
@@ -238,7 +237,7 @@ func (rf *Raft) ticker() {
 		if rf.state == Leader {
 			rf.appendEntries(true)
 		}
-		if time.Since(rf.lastHeartBeat) > rf.electionTimeout {
+		if time.Now().After(rf.electionTime) {
 			rf.leaderElection()
 		}
 		rf.mu.Unlock()
@@ -270,8 +269,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.heartBeat = 100 * time.Millisecond
-	rf.lastHeartBeat = time.Now()
-	rf.resetElectionTimeout()
+	rf.resetElectionTimer()
 
 	rf.log = make([]Log, 0)
 	rf.log = append(rf.log, Log{})

@@ -31,6 +31,9 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 		// rules for leader 3
 		if lastLog.Index > rf.nextIndex[peer] || heartbeat {
 			nextIndex := rf.nextIndex[peer]
+			if nextIndex <= 0 {
+				nextIndex = 1
+			}
 			if rf.lastLog().Index + 1 < nextIndex  {
 				nextIndex = rf.lastLog().Index
 			}

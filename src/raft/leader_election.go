@@ -20,21 +20,21 @@ func (rf *Raft) resetElectionTimeout() {
 	rf.electionTimeout = time.Duration(150 + rand.Intn(150)) * time.Millisecond
 }
 
-func (rf *Raft) setNewTerm(term int) bool {
+func (rf *Raft) setNewTerm(term int) {
 	if term > rf.currentTerm || rf.currentTerm == 0 {
 		rf.state = Follower
 		rf.currentTerm = term
 		rf.votedFor = -1
 		DPrintf("[%d]: set term %v\n", rf.me, rf.currentTerm)
-		return true
+		rf.persist()
 	}
-	return false
 }
 
 func (rf *Raft) leaderElection() {
 	rf.currentTerm++
 	rf.state = Candidate
 	rf.votedFor = rf.me
+	rf.persist()
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 	term := rf.currentTerm

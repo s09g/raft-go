@@ -18,12 +18,13 @@ package raft
 //
 
 import (
-	//	"bytes"
+	"bytes"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	//	"../labgob"
+	"../labgob"
 	"../labrpc"
 )
 
@@ -53,6 +54,16 @@ const (
 	Leader  = "Leader"
 )
 
+type Log struct {
+	Command interface{}
+	Term    int
+	Index   int
+}
+
+func (rf *Raft) lastLog() *Log {
+	return &rf.log[len(rf.log) - 1]
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -75,8 +86,8 @@ type Raft struct {
 
 	// Persistent state on all servers:
 	currentTerm int
-	votedFor int
-	log []Log
+	votedFor    int
+	log         []Log
 
 	// Volatile state on all servers:
 	commitIndex int
@@ -97,14 +108,13 @@ type Raft struct {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
-	// Your code here (2C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 
@@ -115,41 +125,22 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
-	// Your code here (2C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var logs []Log
+
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&logs) != nil {
+		log.Fatal("failed to read persist\n")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.log = logs
+	}
 }
 
-
-//
-// A service wants to switch to snapshot.  Only do so if Raft hasn't
-// have more recent info since it communicate the snapshot on applyCh.
-//
-func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
-
-	// Your code here (2D).
-
-	return true
-}
-
-// the service says it has created a snapshot that has
-// all info up to and including index. this means the
-// service no longer needs the log through (and including)
-// that index. Raft should now trim its log as much as possible.
-func (rf *Raft) Snapshot(index int, snapshot []byte) {
-	// Your code here (2D).
-
-}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -166,8 +157,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	DPrintf("[%v]: Start 收到 command %v", rf.me, command)
-
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.state != Leader {
@@ -182,7 +171,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Term:    term,
 	}
 	DPrintf("[%v]: Start 收到 log %v", rf.me, log)
-	rf.appendLog(&log)
+	rf.log = append(rf.log, log)
 	rf.persist()
 	rf.appendEntries(false)
 
@@ -251,13 +240,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	DPrintf("[%d]: initialization\n", me)
-	rf.setNewTerm(0)
+	rf.state = Follower
+	rf.currentTerm = 0
+	rf.votedFor = -1
 	rf.heartBeat = 100 * time.Millisecond
 	rf.lastHeartBeat = time.Now()
 	rf.resetElectionTimeout()
 
 	rf.log = make([]Log, 0)
-	rf.appendLog(&Log{})
+	rf.log = append(rf.log, Log{})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.nextIndex = make([]int, len(rf.peers))
@@ -288,7 +279,7 @@ func (rf *Raft) applier() {
 
 	for !rf.killed() {
 		// all server rule 1
-		if rf.commitIndex > rf.lastApplied  {
+		if rf.commitIndex > rf.lastApplied && rf.lastLog().Index > rf.lastApplied {
 			rf.lastApplied++
 			applyMsg := ApplyMsg{
 				CommandValid:  true,
@@ -298,7 +289,7 @@ func (rf *Raft) applier() {
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v]: apply %v, lastApplied %v, commitIndex %v, rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
+			DPrintf("[%v]: apply %#v, lastApplied %v, commitIndex %v, rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
 		} else {
 			rf.applyCond.Wait()
 			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)

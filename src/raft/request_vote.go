@@ -48,8 +48,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	// request vote rpc receiver 2
-	myLastLog := rf.lastLog()
-
+	myLastLog := rf.log.lastLog()
 	upToDate := args.LastLogTerm > myLastLog.Term ||
 		(args.LastLogTerm == myLastLog.Term && args.LastLogIndex >= myLastLog.Index)
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
@@ -57,6 +56,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = args.CandidateId
 		rf.persist()
 		rf.resetElectionTimer()
+		DPrintf("[%v]: term %v vote %v", rf.me, rf.currentTerm, rf.votedFor)
 	} else {
 		reply.VoteGranted = false
 	}
@@ -129,9 +129,9 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 		rf.state == Candidate {
 		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
 		becameLeader.Do(func() {
-			DPrintf("[%d]: 当前票数 %d 结束\n", rf.me, *voteCounter)
+			DPrintf("[%d]: 当前term %d 结束\n", rf.me, rf.currentTerm)
 			rf.state = Leader
-			lastLogIndex := rf.lastLog().Index
+			lastLogIndex := rf.log.lastLog().Index
 			for i := range rf.nextIndex {
 				rf.nextIndex[i] = lastLogIndex + 1
 			}

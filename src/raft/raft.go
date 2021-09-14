@@ -60,16 +60,6 @@ const (
 	Leader  = "Leader"
 )
 
-type Log struct {
-	Command interface{}
-	Term    int
-	Index   int
-}
-
-func (rf *Raft) lastLog() *Log {
-	return &rf.log[len(rf.log) - 1]
-}
-
 //
 // A Go object implementing a single Raft peer.
 //
@@ -85,14 +75,14 @@ type Raft struct {
 	// state a Raft server must maintain.
 
 	state         RaftState
-	appendEntryCh chan *Log
+	appendEntryCh chan *Entry
 	heartBeat     time.Duration
 	electionTime  time.Time
 
 	// Persistent state on all servers:
 	currentTerm int
 	votedFor    int
-	log         []Log
+	log         Log
 
 	// Volatile state on all servers:
 	commitIndex int
@@ -113,6 +103,7 @@ type Raft struct {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
+	DPrintf("[%v]: STATE: %v", rf.me, rf.log.String())
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
@@ -135,7 +126,7 @@ func (rf *Raft) readPersist(data []byte) {
 	d := labgob.NewDecoder(r)
 	var currentTerm int
 	var votedFor int
-	var logs []Log
+	var logs Log
 
 	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&logs) != nil {
 		log.Fatal("failed to read persist\n")
@@ -187,17 +178,17 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	if rf.state != Leader {
 		return -1, rf.currentTerm, false
 	}
-	index := rf.lastLog().Index + 1
+	index := rf.log.lastLog().Index + 1
 	term := rf.currentTerm
 
-	log := Log{
+	log := Entry{
 		Command: command,
 		Index:   index,
 		Term:    term,
 	}
-	DPrintf("[%v]: Start 收到 log %v", rf.me, log)
-	rf.log = append(rf.log, log)
+	rf.log.append(log)
 	rf.persist()
+	DPrintf("[%v]: term %v Start %v", rf.me, term, log)
 	rf.appendEntries(false)
 
 	return index, term, true
@@ -264,15 +255,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-	DPrintf("[%d]: initialization\n", me)
 	rf.state = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.heartBeat = 100 * time.Millisecond
+	rf.heartBeat = 50 * time.Millisecond
 	rf.resetElectionTimer()
 
-	rf.log = make([]Log, 0)
-	rf.log = append(rf.log, Log{})
+	rf.log = makeEmptyLog()
+	rf.log.append(Entry{-1, 0, 0})
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.nextIndex = make([]int, len(rf.peers))
@@ -303,17 +293,17 @@ func (rf *Raft) applier() {
 
 	for !rf.killed() {
 		// all server rule 1
-		if rf.commitIndex > rf.lastApplied && rf.lastLog().Index > rf.lastApplied {
+		if rf.commitIndex > rf.lastApplied && rf.log.lastLog().Index > rf.lastApplied {
 			rf.lastApplied++
 			applyMsg := ApplyMsg{
 				CommandValid:  true,
-				Command:       rf.log[rf.lastApplied].Command,
+				Command:       rf.log.at(rf.lastApplied).Command,
 				CommandIndex:  rf.lastApplied,
 			}
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v]: apply %#v, lastApplied %v, commitIndex %v, rf.log %v", rf.me, applyMsg, rf.lastApplied, rf.commitIndex, rf.log)
+			DPrintf("[%v]: apply commitIndex %v", rf.me, rf.commitIndex)
 		} else {
 			rf.applyCond.Wait()
 			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)

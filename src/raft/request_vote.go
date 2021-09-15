@@ -98,7 +98,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 
-func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCounter *int, becameLeader *sync.Once) {
+func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCounter *int, becomeLeader *sync.Once) {
 	DPrintf("[%d]: term %v send vote request to %d\n", rf.me, args.Term, serverId)
 	reply := RequestVoteReply{}
 	ok := rf.sendRequestVote(serverId, args, &reply)
@@ -128,12 +128,13 @@ func (rf *Raft) candidateRequestVote(serverId int, args *RequestVoteArgs, voteCo
 		rf.currentTerm == args.Term &&
 		rf.state == Candidate {
 		DPrintf("[%d]: 获得多数选票，可以提前结束\n", rf.me)
-		becameLeader.Do(func() {
+		becomeLeader.Do(func() {
 			DPrintf("[%d]: 当前term %d 结束\n", rf.me, rf.currentTerm)
 			rf.state = Leader
 			lastLogIndex := rf.log.lastLog().Index
-			for i := range rf.nextIndex {
+			for i, _ := range rf.peers {
 				rf.nextIndex[i] = lastLogIndex + 1
+				rf.matchIndex[i] = 0
 			}
 			DPrintf("[%d]: leader - nextIndex %#v", rf.me, rf.nextIndex)
 			rf.appendEntries(true)

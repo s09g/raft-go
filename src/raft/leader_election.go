@@ -49,10 +49,10 @@ func (rf *Raft) leaderElection() {
 		LastLogTerm:  lastLog.Term,
 	}
 
-	var becameLeader sync.Once
+	var becomeLeader sync.Once
 	for serverId, _ := range rf.peers {
 		if serverId != rf.me {
-			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becameLeader)
+			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becomeLeader)
 		}
 	}
 }

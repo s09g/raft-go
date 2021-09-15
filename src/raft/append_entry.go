@@ -61,13 +61,14 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 		rf.setNewTerm(reply.Term)
 		return
 	}
-	if reply.Term == rf.currentTerm {
+	if args.Term == rf.currentTerm {
 		// rules for leader 3.1
 		if reply.Success {
 			match := args.PrevLogIndex + len(args.Entries)
 			next := match + 1
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
+			DPrintf("[%v]: %v append success next %v match %v", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
 		} else if reply.Conflict {
 			DPrintf("[%v]: Conflict from %v %#v", rf.me, serverId, reply)
 			if reply.XTerm == -1 {

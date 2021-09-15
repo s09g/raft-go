@@ -19,7 +19,9 @@ package raft
 
 import (
 	"bytes"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,7 +105,7 @@ type Raft struct {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
-	DPrintf("[%v]: STATE: %v", rf.me, rf.log.String())
+	DPrintVerbose("[%v]: STATE: %v", rf.me, rf.log.String())
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
@@ -300,13 +302,21 @@ func (rf *Raft) applier() {
 				Command:       rf.log.at(rf.lastApplied).Command,
 				CommandIndex:  rf.lastApplied,
 			}
+			DPrintVerbose("[%v]: COMMIT %d: %v", rf.me, rf.lastApplied, rf.commits())
 			rf.mu.Unlock()
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
-			DPrintf("[%v]: apply commitIndex %v", rf.me, rf.commitIndex)
 		} else {
 			rf.applyCond.Wait()
 			DPrintf("[%v]: rf.applyCond.Wait()", rf.me)
 		}
 	}
+}
+
+func (rf *Raft) commits() string {
+	nums := []string{}
+	for i := 0; i <= rf.lastApplied; i++ {
+		nums = append(nums, fmt.Sprintf("%4d", rf.log.at(i).Command))
+	}
+	return fmt.Sprint(strings.Join(nums, "|"))
 }

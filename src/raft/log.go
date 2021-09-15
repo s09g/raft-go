@@ -56,7 +56,7 @@ func (e *Entry) String() string {
 func (l *Log) String() string {
 	nums := []string{}
 	for _, entry := range l.Entries {
-		nums = append(nums,  fmt.Sprintf("%2d", entry.Term))
+		nums = append(nums,  fmt.Sprintf("%4d", entry.Term))
 	}
 	return fmt.Sprint(strings.Join(nums, "|"))
 }

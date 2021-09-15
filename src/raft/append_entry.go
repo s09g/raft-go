@@ -5,7 +5,7 @@ type AppendEntriesArgs struct {
 	LeaderId int
 	PrevLogIndex int
 	PrevLogTerm int
-	Entries []Log
+	Entries []Entry
 	LeaderCommit int
 }
 
@@ -19,7 +19,7 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) appendEntries(heartbeat bool) {
-	lastLog := rf.lastLog()
+	lastLog := rf.log.lastLog()
 	for peer, _ := range rf.peers {
 		if peer == rf.me {
 			rf.resetElectionTimer()
@@ -31,26 +31,25 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 			if nextIndex <= 0 {
 				nextIndex = 1
 			}
-			if rf.lastLog().Index + 1 < nextIndex  {
-				nextIndex = rf.lastLog().Index
+			if lastLog.Index + 1 < nextIndex  {
+				nextIndex = lastLog.Index
 			}
-			prevLog := rf.log[nextIndex - 1]
+			prevLog := rf.log.at(nextIndex - 1)
 			args := AppendEntriesArgs{
 				Term:         rf.currentTerm,
 				LeaderId:     rf.me,
 				PrevLogIndex: prevLog.Index,
 				PrevLogTerm:  prevLog.Term,
-				Entries:      make([]Log, lastLog.Index - nextIndex + 1),
+				Entries:      make([]Entry, lastLog.Index - nextIndex + 1),
 				LeaderCommit: rf.commitIndex,
 			}
-			copy(args.Entries, rf.log[nextIndex:])
+			copy(args.Entries, rf.log.slice(nextIndex))
 			go rf.leaderSendEntries(peer, &args)
 		}
 	}
 }
 
 func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
-	DPrintf("[%v]: term %v 发送entry to %v : args prev %v, lastLog %v", rf.me, args.Term, serverId, args.PrevLogIndex, args.PrevLogIndex + len(args.Entries))
 	var reply AppendEntriesReply
 	ok := rf.sendAppendEntries(serverId, args, &reply)
 	if !ok {
@@ -62,13 +61,14 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 		rf.setNewTerm(reply.Term)
 		return
 	}
-	if reply.Term == rf.currentTerm {
+	if args.Term == rf.currentTerm {
 		// rules for leader 3.1
 		if reply.Success {
 			match := args.PrevLogIndex + len(args.Entries)
 			next := match + 1
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
+			DPrintf("[%v]: %v append success next %v match %v", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
 		} else if reply.Conflict {
 			DPrintf("[%v]: Conflict from %v %#v", rf.me, serverId, reply)
 			if reply.XTerm == -1 {
@@ -83,7 +83,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 				}
 			}
 
-			DPrintf("[%v]: leader nextIndex[%v] %v log %v, ", rf.me, serverId, rf.nextIndex[serverId], rf.log)
+			DPrintf("[%v]: leader nextIndex[%v] %v", rf.me, serverId, rf.nextIndex[serverId])
 		} else if rf.nextIndex[serverId] > 1 {
 			rf.nextIndex[serverId]--
 		}
@@ -92,8 +92,8 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 }
 
 func (rf *Raft) findLastLogInTerm(x int) int {
-	for i := len(rf.log) - 1; i > 0 ; i-- {
-		term := rf.log[i].Term
+	for i := rf.log.lastLog().Index; i > 0 ; i-- {
+		term := rf.log.at(i).Term
 		if term == x {
 			return i
 		} else if term < x {
@@ -108,9 +108,9 @@ func (rf *Raft) leaderCommitRule() {
 	if rf.state != Leader {
 		return
 	}
-	N := rf.commitIndex
-	for n := rf.commitIndex + 1; n <= rf.lastLog().Index; n++ {
-		if rf.log[n].Term != rf.currentTerm {
+
+	for n := rf.commitIndex + 1; n <= rf.log.lastLog().Index; n++ {
+		if rf.log.at(n).Term != rf.currentTerm {
 			continue
 		}
 		counter := 1
@@ -119,36 +119,32 @@ func (rf *Raft) leaderCommitRule() {
 				counter++
 			}
 			if counter > len(rf.peers) / 2 {
-				N = n
+				rf.commitIndex = n
+				DPrintf("[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
+				rf.apply()
 				break
 			}
 		}
 	}
-	if N == rf.commitIndex {
-		return
-	}
-	rf.commitIndex = N
-	DPrintf("[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
-	rf.apply()
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("[%d]: follower 收到 [%v] AppendEntries %v, prevIndex %v, prevTerm %v, 当前log %v\n", rf.me, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm, rf.log)
+	DPrintf("[%d]: (term %d) follower 收到 [%v] AppendEntries %v, prevIndex %v, prevTerm %v", rf.me, rf.currentTerm, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm)
 	// rules for servers
 	// all servers 2
 	reply.Success = false
 	reply.Term = rf.currentTerm
 	if args.Term > rf.currentTerm {
 		rf.setNewTerm(args.Term)
+		return
 	}
 
 	// append entries rpc 1
 	if args.Term < rf.currentTerm {
 		return
 	}
-	//DPrintf("[%v]: reset heart beat", rf.me)
 	rf.resetElectionTimer()
 
 	// candidate rule 3
@@ -156,54 +152,50 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.state = Follower
 	}
 	// append entries rpc 2
-	if rf.lastLog().Index < args.PrevLogIndex {
+	if rf.log.lastLog().Index < args.PrevLogIndex {
 		reply.Conflict = true
 		reply.XTerm = -1
 		reply.XIndex = -1
-		reply.XLen = len(rf.log)
+		reply.XLen = rf.log.len()
 		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
-	if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if rf.log.at(args.PrevLogIndex).Term != args.PrevLogTerm {
 		reply.Conflict = true
-		xTerm := rf.log[args.PrevLogIndex].Term
+		xTerm := rf.log.at(args.PrevLogIndex).Term
 		for xIndex := args.PrevLogIndex; xIndex > 0 ; xIndex-- {
-			if rf.log[xIndex - 1].Term != xTerm {
+			if rf.log.at(xIndex - 1).Term != xTerm {
 				reply.XIndex = xIndex
 				break
 			}
 		}
 		reply.XTerm = xTerm
-		reply.XLen = len(rf.log)
+		reply.XLen = rf.log.len()
 		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
-	//DPrintf("[%v]: append entries rpc 2, log %v", rf.me, rf.log)
 
-	// append entries rpc 3
-	if args.PrevLogIndex < rf.lastLog().Index && rf.log[args.PrevLogIndex+1].Term != args.Term {
-		rf.log = rf.log[: args.PrevLogIndex + 1]
-		rf.persist()
-	}
-	//DPrintf("[%v]: append entries rpc 3, log %v", rf.me, rf.log)
-
-	// append entries rpc 4
-	for i, entry := range args.Entries {
-		if entry.Index >= len(rf.log) || rf.log[entry.Index].Term != entry.Term {
-			rf.log = append(rf.log, args.Entries[i:]...)
+	for idx, entry := range args.Entries {
+		// append entries rpc 3
+		if entry.Index <= rf.log.lastLog().Index && rf.log.at(entry.Index).Term != entry.Term {
+			rf.log.truncate(entry.Index)
+			rf.persist()
+		}
+		// append entries rpc 4
+		if entry.Index > rf.log.lastLog().Index {
+			rf.log.append(args.Entries[idx:]...)
+			DPrintf("[%d]: follower append [%v]", rf.me, args.Entries[idx:])
 			rf.persist()
 			break
 		}
 	}
-	//DPrintf("[%v]: append entries rpc 4, log %v", rf.me, rf.log)
 
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = min(args.LeaderCommit, rf.lastLog().Index)
+		rf.commitIndex = min(args.LeaderCommit, rf.log.lastLog().Index)
 		rf.apply()
 	}
 	reply.Success = true
-	DPrintf("[%v]: follower commit %v, applied %v, 当前log %v", rf.me, rf.commitIndex, rf.lastApplied, rf.log)
 }
 
 

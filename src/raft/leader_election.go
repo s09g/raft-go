@@ -40,7 +40,7 @@ func (rf *Raft) leaderElection() {
 	rf.resetElectionTimer()
 	term := rf.currentTerm
 	voteCounter := 1
-	lastLog := rf.lastLog()
+	lastLog := rf.log.lastLog()
 	DPrintf("[%v]: start leader election, term %d\n", rf.me, rf.currentTerm)
 	args := RequestVoteArgs{
 		Term:         term,
@@ -49,10 +49,10 @@ func (rf *Raft) leaderElection() {
 		LastLogTerm:  lastLog.Term,
 	}
 
-	var becameLeader sync.Once
+	var becomeLeader sync.Once
 	for serverId, _ := range rf.peers {
 		if serverId != rf.me {
-			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becameLeader)
+			go rf.candidateRequestVote(serverId, &args, &voteCounter, &becomeLeader)
 		}
 	}
 }

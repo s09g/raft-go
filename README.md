@@ -217,7 +217,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 			continue
 		}
 		// rules for leader 3
-		if lastLog.Index > rf.nextIndex[peer] || heartbeat {
+		if lastLog.Index >= rf.nextIndex[peer] || heartbeat {
 			nextIndex := rf.nextIndex[peer]
 			if nextIndex <= 0 {
 				nextIndex = 1
@@ -456,9 +456,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 5. 接上条，早点写个log可视化的脚本来处理。Python写了一下，大约30多行，可以把45s左右的test过程，变成一个5分钟左右的动画，能看到每个server的append、commit等过程
 6. 论文+student guide需要反复看，所以早点把重点摘出来写成笔记放在手边。我在微信上发了中文版的翻译
 
-
-
-
+## Acknowledge
++ 感谢 @chentaiyue 提出的的issue，非常细心！
 
 
 

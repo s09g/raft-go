@@ -1,21 +1,21 @@
 package raft
 
 type AppendEntriesArgs struct {
-	Term int
-	LeaderId int
+	Term         int
+	LeaderId     int
 	PrevLogIndex int
-	PrevLogTerm int
-	Entries []Entry
+	PrevLogTerm  int
+	Entries      []Entry
 	LeaderCommit int
 }
 
 type AppendEntriesReply struct {
-	Term int
-	Success bool
+	Term     int
+	Success  bool
 	Conflict bool
-	XTerm int
-	XIndex int
-	XLen int
+	XTerm    int
+	XIndex   int
+	XLen     int
 }
 
 func (rf *Raft) appendEntries(heartbeat bool) {
@@ -26,12 +26,12 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 			continue
 		}
 		// rules for leader 3
-		if lastLog.Index > rf.nextIndex[peer] || heartbeat {
+		if lastLog.Index >= rf.nextIndex[peer] || heartbeat {
 			nextIndex := rf.nextIndex[peer]
 			if nextIndex <= 0 {
 				nextIndex = 1
 			}
-			if lastLog.Index + 1 < nextIndex  {
+			if lastLog.Index+1 < nextIndex {
 				nextIndex = lastLog.Index
 			}
 			prevLog := rf.log.at(nextIndex - 1)
@@ -40,7 +40,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 				LeaderId:     rf.me,
 				PrevLogIndex: prevLog.Index,
 				PrevLogTerm:  prevLog.Term,
-				Entries:      make([]Entry, lastLog.Index - nextIndex + 1),
+				Entries:      make([]Entry, lastLog.Index-nextIndex+1),
 				LeaderCommit: rf.commitIndex,
 			}
 			copy(args.Entries, rf.log.slice(nextIndex))
@@ -92,7 +92,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 }
 
 func (rf *Raft) findLastLogInTerm(x int) int {
-	for i := rf.log.lastLog().Index; i > 0 ; i-- {
+	for i := rf.log.lastLog().Index; i > 0; i-- {
 		term := rf.log.at(i).Term
 		if term == x {
 			return i
@@ -118,7 +118,7 @@ func (rf *Raft) leaderCommitRule() {
 			if serverId != rf.me && rf.matchIndex[serverId] >= n {
 				counter++
 			}
-			if counter > len(rf.peers) / 2 {
+			if counter > len(rf.peers)/2 {
 				rf.commitIndex = n
 				DPrintf("[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
 				rf.apply()
@@ -163,8 +163,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if rf.log.at(args.PrevLogIndex).Term != args.PrevLogTerm {
 		reply.Conflict = true
 		xTerm := rf.log.at(args.PrevLogIndex).Term
-		for xIndex := args.PrevLogIndex; xIndex > 0 ; xIndex-- {
-			if rf.log.at(xIndex - 1).Term != xTerm {
+		for xIndex := args.PrevLogIndex; xIndex > 0; xIndex-- {
+			if rf.log.at(xIndex-1).Term != xTerm {
 				reply.XIndex = xIndex
 				break
 			}
@@ -198,10 +198,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Success = true
 }
 
-
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
-
-
